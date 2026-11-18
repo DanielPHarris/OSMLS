@@ -38,12 +38,12 @@ From the demo, which uses synthetic listings and illustrated placeholder photos.
 ## Creator and maintainer
 
 OSMLS is created and maintained by [Daniel P. Harris](https://danielpharris.com)
-([GitHub](https://github.com/DanielPHarris)). From 2018 to 2025 Daniel held senior
-leadership roles at Las Vegas REALTORS®, including Chief Technology Officer, Chief
-Innovation Officer, Chief Operating Officer, and Co-Interim CEO. That experience of
-operating an MLS shapes what OSMLS puts first: practical agent workflows, MLS
-administration, interoperability between vendors, and systems that keep an
-accountable record of who changed what.
+([GitHub](https://github.com/DanielPHarris)). Daniel held senior leadership roles at
+Las Vegas REALTORS®, including Chief Technology Officer, Chief Innovation Officer,
+and Chief Operating Officer, and served in interim CEO leadership. That experience
+in technology and operations leadership shapes OSMLS's priorities: practical agent
+workflows, MLS administration, interoperability between vendors, and systems that
+keep an accountable record of who changed what.
 
 OSMLS is an independent project. It is not affiliated with or endorsed by Las Vegas
 REALTORS® or the Real Estate Standards Organization (RESO).
