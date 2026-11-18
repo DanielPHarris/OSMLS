@@ -28,6 +28,8 @@ services:
       BETTER_AUTH_URL: http://localhost:${OSMLS_PORT:-3000}
       MEDIA_DIR: /data/media
       DEMO_PASSWORD: osmls-demo-password
+      # Any MapLibre-compatible style URL. Empty means the demo default.
+      MAP_STYLE_URL: ${MAP_STYLE_URL:-}
     ports:
       - "${OSMLS_PORT:-3000}:3000"
     volumes:

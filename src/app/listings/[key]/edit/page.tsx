@@ -4,6 +4,7 @@ import { ListingForm } from "@/components/listing-form";
 import { PhotoManager } from "@/components/photo-manager";
 import { canEdit, getListing } from "@/lib/listings";
 import { PROPERTY_TYPES, STANDARD_STATUSES, type StandardStatus } from "@/lib/lookups";
+import { getMapConfig } from "@/lib/map-config";
 import { STATUS_TRANSITIONS, isTerminal } from "@/lib/rules/status";
 import { requireMember } from "@/lib/session";
 
@@ -37,6 +38,7 @@ export default async function EditListingPage({ params }: { params: Promise<{ ke
         propertyTypes={PROPERTY_TYPES}
         isStaffCorrection={isStaff}
         cancelHref={`/listings/${listing.ListingKey}`}
+        mapConfig={getMapConfig()}
       />
       <PhotoManager
         listingKey={listing.ListingKey}

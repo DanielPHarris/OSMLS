@@ -25,6 +25,11 @@ production-ready.**
 - Not tested: other machines or operating systems, browsers other than Chromium,
   phone-sized screens, and RESO's certification tests (there is no Web API endpoint
   to test). There has been no security review.
+- Map search (roadmap item 1) is implemented on top of 0.1: pinning a listing,
+  results on a map, and searching the visible map area. Tested by 45 automated
+  tests and 3 browser tests, which use a blank local map style. The default map
+  service was checked by hand in a production build at desktop and phone widths,
+  in Chromium only.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -105,7 +110,7 @@ In scope:
 
 Out of 0.1, planned for later releases (see section 10):
 
-- Map search.
+- Map search (since added; see section 10).
 - Documents and showing instructions.
 - Sold-record research, DOM/CDOM, comparables.
 - Saved searches, collections, email sharing, reports, alerts.
@@ -158,6 +163,12 @@ toolkit and Data Dictionary.
 - **Sign-in:** a self-hosted library inside the application, not a hosted identity
   service, so anyone can run OSMLS without third-party accounts.
 - **Photos:** stored on local disk in 0.1.
+- **Maps:** MapLibre GL JS, with the map source set by one MapLibre-compatible
+  style URL. The default is OpenFreeMap's public service, which has no availability
+  guarantee and may be discontinued without notice, so it is a demo default only.
+  Listing locations are plain latitude and longitude columns. PostGIS is deferred
+  until polygons or radius search are taken up; the effort to migrate will be
+  assessed then.
 - **Running it:** Docker Compose starts the application and database with synthetic
   data in one command. No dependency on any one hosting provider.
 - **Tests:** unit tests for validation and status rules, plus one browser test that
@@ -209,18 +220,19 @@ Done:
 
 - Charter, scope, license, and stack decided (2026-11-18).
 - Version 0.1 workflow built and tested (2026-11-18).
+- Map search within the visible map area (2026-11-18). Drawing shapes, radius
+  search, and automatic geocoding are not included.
 
 Next, in this order unless contributors and the maintainer agree otherwise:
 
-1. Map search.
-2. Documents and showing instructions.
-3. Sold-record research, DOM/CDOM, comparables.
-4. Saved searches, collections, email sharing, reports, alerts.
-5. Administration screens and access suspension.
-6. Compliance flags.
-7. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
+1. Documents and showing instructions.
+2. Sold-record research, DOM/CDOM, comparables.
+3. Saved searches, collections, email sharing, reports, alerts.
+4. Administration screens and access suspension.
+5. Compliance flags.
+6. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool.
-8. Production operations: monitoring, backups, recovery.
+7. Production operations: monitoring, backups, recovery.
 
 Fair-housing considerations (section 8) are a design requirement and are not yet
 implemented in any feature.

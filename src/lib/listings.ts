@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { and, asc, desc, eq, gte, ilike, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, between, count, desc, eq, gte, ilike, inArray, isNull, lte, sql } from "drizzle-orm";
 import { db, type Tx } from "../db";
 import {
   historyTransactional,
@@ -49,6 +49,8 @@ const TRACKED_FIELDS = [
   "LotSizeAcres",
   "YearBuilt",
   "PublicRemarks",
+  "Latitude",
+  "Longitude",
   "ClosePrice",
   "CloseDate",
 ] as const satisfies readonly (keyof ListingInput)[];
@@ -309,13 +311,30 @@ export type SearchFilters = {
   minBaths?: number;
   statuses?: StandardStatus[];
   listAgentKey?: string;
+  /** Limit results to listings whose pin is inside this map area. */
+  bounds?: MapBounds;
 };
+
+export type MapBounds = { west: number; south: number; east: number; north: number };
+
+/**
+ * Reads "west,south,east,north" from a URL. Returns undefined unless it is four
+ * sensible numbers. Areas that cross the 180th meridian are not supported.
+ */
+export function parseBounds(value: string | undefined): MapBounds | undefined {
+  const parts = value?.split(",").map(Number);
+  if (!parts || parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return undefined;
+  const [west, south, east, north] = parts;
+  if (west >= east || south >= north) return undefined;
+  if (west < -180 || east > 180 || south < -90 || north > 90) return undefined;
+  return { west, south, east, north };
+}
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, "\\$&");
 
 export async function searchListings(filters: SearchFilters) {
   const f = filters;
-  const where = and(
+  const fieldFilters = and(
     f.listingId ? ilike(property.ListingId, escapeLike(f.listingId.trim())) : undefined,
     f.address ? ilike(property.UnparsedAddress, `%${escapeLike(f.address.trim())}%`) : undefined,
     f.city ? ilike(property.City, escapeLike(f.city.trim())) : undefined,
@@ -327,6 +346,15 @@ export async function searchListings(filters: SearchFilters) {
     f.statuses?.length ? inArray(property.StandardStatus, f.statuses) : undefined,
     f.listAgentKey ? eq(property.ListAgentKey, f.listAgentKey) : undefined,
   );
+  // A listing with no pin cannot be shown to be inside the area, so an area
+  // search leaves it out. BETWEEN is never true for a missing value.
+  const inArea = f.bounds
+    ? and(
+        between(property.Latitude, f.bounds.south, f.bounds.north),
+        between(property.Longitude, f.bounds.west, f.bounds.east),
+      )
+    : undefined;
+
   const rows = await db
     .select({
       listing: property,
@@ -340,10 +368,21 @@ export async function searchListings(filters: SearchFilters) {
     .from(property)
     .innerJoin(member, eq(member.MemberKey, property.ListAgentKey))
     .innerJoin(office, eq(office.OfficeKey, property.ListOfficeKey))
-    .where(where)
+    .where(and(fieldFilters, inArea))
     .orderBy(desc(property.ModificationTimestamp), asc(property.ListingId))
     .limit(MAX_SEARCH_RESULTS + 1);
-  return { rows: rows.slice(0, MAX_SEARCH_RESULTS), truncated: rows.length > MAX_SEARCH_RESULTS };
+
+  // How many listings match the other filters but have no pin.
+  const [{ withoutLocation }] = await db
+    .select({ withoutLocation: count() })
+    .from(property)
+    .where(and(fieldFilters, isNull(property.Latitude)));
+
+  return {
+    rows: rows.slice(0, MAX_SEARCH_RESULTS),
+    truncated: rows.length > MAX_SEARCH_RESULTS,
+    withoutLocation,
+  };
 }
 
 export async function getListing(listingKey: string) {

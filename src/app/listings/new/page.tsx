@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ListingForm } from "@/components/listing-form";
 import { PROPERTY_TYPES } from "@/lib/lookups";
+import { getMapConfig } from "@/lib/map-config";
 import { INITIAL_STATUSES } from "@/lib/rules/status";
 import { requireMember } from "@/lib/session";
 
@@ -17,6 +18,7 @@ export default async function NewListingPage() {
         propertyTypes={PROPERTY_TYPES}
         isStaffCorrection={false}
         cancelHref="/search"
+        mapConfig={getMapConfig()}
       />
     </>
   );

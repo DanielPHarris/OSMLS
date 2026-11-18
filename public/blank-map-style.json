@@ -1,0 +1,15 @@
+{
+  "version": 8,
+  "name": "Blank",
+  "sources": {
+    "none": {
+      "type": "geojson",
+      "data": { "type": "FeatureCollection", "features": [] },
+      "attribution": "No base map"
+    }
+  },
+  "layers": [
+    { "id": "background", "type": "background", "paint": { "background-color": "#e8edf2" } },
+    { "id": "none", "type": "circle", "source": "none" }
+  ]
+}
