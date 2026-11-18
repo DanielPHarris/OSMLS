@@ -29,7 +29,8 @@ Follow "Develop" in the [README](README.md).
 - **Schema changes as migrations.** Edit `src/db/schema.ts`, run `pnpm db:generate`,
   and commit the generated SQL.
 - **Synthetic data only.** Never add real listings, people, or MLS data.
-- `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass.
+- `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass. GitHub runs them, the browser
+  tests, and a production build on every pull request.
 
 ## Honesty in documentation
 
