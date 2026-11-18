@@ -19,6 +19,22 @@ an attempt to match the feature set of commercial MLS systems.
 [CHARTER.md](CHARTER.md) records the project's purpose, decisions, scope, and what
 remains.
 
+## Screenshots
+
+From the demo, which uses synthetic listings and illustrated placeholder photos.
+
+**An agent searches listings**
+
+![Search form with filters and a results table](docs/screenshots/search.png)
+
+**A listing, as MLS staff see it**
+
+![Listing page with photos, details, and the listing agent](docs/screenshots/listing.png)
+
+**Its change history, including a staff correction**
+
+![Change history showing who changed each field, old and new values, and a staff correction with its reason](docs/screenshots/history.png)
+
 ## What version 0.1 does
 
 One workflow, end to end:
