@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useActionState } from "react";
 import { saveListing, type FormState } from "@/app/actions";
+import type { MapConfig } from "@/lib/map-config";
+import { LocationPicker } from "./location-picker";
 
 type Props = {
   listingKey: string | null;
@@ -12,9 +14,10 @@ type Props = {
   /** MLS staff edits are corrections and must carry a reason. */
   isStaffCorrection: boolean;
   cancelHref: string;
+  mapConfig: MapConfig;
 };
 
-export function ListingForm({ listingKey, initial, statusOptions, propertyTypes, isStaffCorrection, cancelHref }: Props) {
+export function ListingForm({ listingKey, initial, statusOptions, propertyTypes, isStaffCorrection, cancelHref, mapConfig }: Props) {
   const [state, action, pending] = useActionState<FormState, FormData>(saveListing.bind(null, listingKey), {});
   const value = (name: string) => state.values?.[name] ?? initial[name] ?? "";
   const error = (name: string) =>
@@ -96,6 +99,13 @@ export function ListingForm({ listingKey, initial, statusOptions, propertyTypes,
           {error("PublicRemarks")}
         </label>
       </fieldset>
+
+      <LocationPicker
+        config={mapConfig}
+        initialLatitude={value("Latitude")}
+        initialLongitude={value("Longitude")}
+        errors={{ Latitude: state.errors?.Latitude, Longitude: state.errors?.Longitude }}
+      />
 
       {isStaffCorrection && (
         <fieldset className="card border-amber-300 bg-amber-50">

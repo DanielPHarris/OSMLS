@@ -21,6 +21,8 @@ export default defineConfig({
       BETTER_AUTH_URL: baseURL,
       DATABASE_URL: process.env.TEST_DATABASE_URL,
       MEDIA_DIR: "./data/test-media",
+      // A blank local map style, so the tests do not depend on an outside map service.
+      MAP_STYLE_URL: `${baseURL}/blank-map-style.json`,
     },
     reuseExistingServer: false,
     timeout: 120_000,

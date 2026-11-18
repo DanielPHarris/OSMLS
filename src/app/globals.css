@@ -25,3 +25,25 @@ body {
   .th { @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted; }
   .td { @apply px-3 py-2 align-top text-sm; }
 }
+
+/* Map markers for listings. */
+.osmls-pin {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  background: var(--color-brand);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.45);
+  cursor: pointer;
+}
+.osmls-pin:hover,
+.osmls-pin:focus-visible {
+  background: #c2410c;
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+/* Keep map credits readable and on one block, including on narrow screens. */
+.maplibregl-ctrl-attrib {
+  font-size: 11px;
+  max-width: 100%;
+}

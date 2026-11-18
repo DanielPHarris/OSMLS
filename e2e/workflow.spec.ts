@@ -74,7 +74,7 @@ test("agent creates a listing, another agent finds it, staff inspect its history
   // --- Another agent finds it ---
   await signIn(page, "sam.whitfield@osmls.example");
   await page.getByLabel("Listing number").fill(listingId);
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByTestId("result-count")).toHaveText("1 listing");
   await page.getByRole("link", { name: listingId }).click();
 
@@ -101,7 +101,7 @@ test("agent creates a listing, another agent finds it, staff inspect its history
   await page.getByLabel("City").fill("Port Alder");
   await page.getByLabel("Minimum price").fill("500000");
   await page.getByLabel("Maximum price").fill("520000");
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("link", { name: listingId })).toBeVisible();
   await signOut(page);
 

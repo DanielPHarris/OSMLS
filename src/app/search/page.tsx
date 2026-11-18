@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { SearchMap, type MapPin } from "@/components/search-map";
 import { StatusBadge } from "@/components/status-badge";
 import { formatMoney } from "@/lib/format";
-import { searchListings } from "@/lib/listings";
+import { parseBounds, searchListings } from "@/lib/listings";
+import { getMapConfig } from "@/lib/map-config";
 import { STANDARD_STATUSES, type StandardStatus } from "@/lib/lookups";
 import { requireMember } from "@/lib/session";
 
@@ -26,7 +29,10 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const statuses = submitted ? chosen : DEFAULT_STATUSES;
   const mine = one(p.mine) === "1" && current.OsmlsRole === "agent";
 
-  const { rows, truncated } = await searchListings({
+  const bounds = parseBounds(one(p.bounds));
+
+  const { rows, truncated, withoutLocation } = await searchListings({
+    bounds,
     listingId: one(p.listingId),
     address: one(p.address),
     city: one(p.city),
@@ -38,6 +44,29 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     statuses,
     listAgentKey: mine ? current.MemberKey : undefined,
   });
+
+  const pins: MapPin[] = rows.flatMap(({ listing }) =>
+    listing.Latitude != null && listing.Longitude != null
+      ? [
+          {
+            key: listing.ListingKey,
+            id: listing.ListingId,
+            latitude: listing.Latitude,
+            longitude: listing.Longitude,
+            address: listing.UnparsedAddress,
+            price: formatMoney(listing.ListPrice),
+            status: listing.StandardStatus,
+          },
+        ]
+      : [],
+  );
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const locationNote =
+    withoutLocation === 0
+      ? null
+      : bounds
+        ? `${plural(withoutLocation, "matching listing")} with no map location ${withoutLocation === 1 ? "was" : "were"} left out, because ${withoutLocation === 1 ? "it" : "they"} cannot be placed inside the area.`
+        : `${plural(withoutLocation, "matching listing")} ${withoutLocation === 1 ? "has" : "have"} no map location and ${withoutLocation === 1 ? "is" : "are"} not on the map.`;
 
   const text = (name: string, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="label">
@@ -52,6 +81,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       <form method="get" className="card space-y-4">
         <input type="hidden" name="s" value="1" />
         {mine && <input type="hidden" name="mine" value="1" />}
+        {bounds && <input type="hidden" name="bounds" value={one(p.bounds)} />}
         <div className="grid gap-4 sm:grid-cols-4">
           {text("listingId", "Listing number", { placeholder: "OS1000001" })}
           <div className="sm:col-span-2">{text("address", "Address contains")}</div>
@@ -84,7 +114,21 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
         </div>
       </form>
 
+      <Suspense>
+        <SearchMap config={getMapConfig()} pins={pins} activeBounds={bounds ?? null} statuses={statuses} />
+      </Suspense>
+
       <section aria-live="polite">
+        {bounds && (
+          <p className="mb-1 text-sm font-medium" data-testid="area-note">
+            Showing only listings inside the map area.
+          </p>
+        )}
+        {locationNote && (
+          <p className="mb-1 text-sm text-muted" data-testid="location-note">
+            {locationNote}
+          </p>
+        )}
         <p className="mb-2 text-sm text-muted" data-testid="result-count">
           {rows.length === 0
             ? "No listings match."
@@ -123,7 +167,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
                       </Link>
                       <span className="block text-xs text-muted">{listing.PropertyType}</span>
                     </td>
-                    <td className="td">{listing.UnparsedAddress}</td>
+                    <td className="td">
+                      {listing.UnparsedAddress}
+                      {listing.Latitude == null && (
+                        <span className="block text-xs text-muted">Location unavailable</span>
+                      )}
+                    </td>
                     <td className="td whitespace-nowrap font-medium">{formatMoney(listing.ListPrice)}</td>
                     <td className="td whitespace-nowrap">
                       {listing.BedroomsTotal} / {listing.BathroomsTotalInteger}

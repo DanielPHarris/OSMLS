@@ -91,6 +91,9 @@ export const property = pgTable(
     StateOrProvince: text().notNull(),
     PostalCode: text().notNull(),
     UnparsedAddress: text().notNull(),
+    // Where the pin sits on the map. Both are set, or neither.
+    Latitude: numeric({ precision: 9, scale: 6, mode: "number" }),
+    Longitude: numeric({ precision: 9, scale: 6, mode: "number" }),
 
     BedroomsTotal: integer().notNull(),
     BathroomsTotalInteger: integer().notNull(),
@@ -127,6 +130,13 @@ export const property = pgTable(
       "Property_Closed_has_price_and_date",
       sql`${t.StandardStatus} <> 'Closed' OR (${t.ClosePrice} IS NOT NULL AND ${t.CloseDate} IS NOT NULL)`,
     ),
+    check("Property_Latitude_range", sql`${t.Latitude} BETWEEN -90 AND 90`),
+    check("Property_Longitude_range", sql`${t.Longitude} BETWEEN -180 AND 180`),
+    check(
+      "Property_location_both_or_neither",
+      sql`(${t.Latitude} IS NULL) = (${t.Longitude} IS NULL)`,
+    ),
+    index("Property_location_idx").on(t.Latitude, t.Longitude),
     index("Property_StandardStatus_idx").on(t.StandardStatus),
     index("Property_City_idx").on(t.City),
     index("Property_PostalCode_idx").on(t.PostalCode),
