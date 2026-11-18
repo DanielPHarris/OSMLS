@@ -1,0 +1,39 @@
+# `docker compose up` starts the database and the application with synthetic data.
+# `docker compose up -d db` starts only the database, for local development.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: osmls
+      POSTGRES_PASSWORD: osmls
+      POSTGRES_DB: osmls
+    ports:
+      - "${OSMLS_DB_PORT:-5433}:5432"
+    volumes:
+      - osmls-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U osmls -d osmls"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://osmls:osmls@db:5432/osmls
+      BETTER_AUTH_SECRET: dev-only-secret-change-me-before-any-real-use
+      BETTER_AUTH_URL: http://localhost:${OSMLS_PORT:-3000}
+      MEDIA_DIR: /data/media
+      DEMO_PASSWORD: osmls-demo-password
+    ports:
+      - "${OSMLS_PORT:-3000}:3000"
+    volumes:
+      # Shared with local development (MEDIA_DIR=./data/media), so photos uploaded
+      # either way show up in both.
+      - ./data/media:/data/media
+
+volumes:
+  osmls-db:

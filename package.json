@@ -1,0 +1,50 @@
+{
+  "name": "osmls",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
+    "test": "pnpm test:db && vitest run",
+    "test:e2e": "pnpm test:db && playwright test",
+    "test:db": "tsx --env-file-if-exists=.env scripts/prepare-test-db.ts"
+  },
+  "dependencies": {
+    "better-auth": "^1.7.25",
+    "drizzle-orm": "^0.45.4",
+    "next": "16.4.6",
+    "pg": "^8.23.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@tailwindcss/turbopack": "4.3.3",
+    "@types/node": "^20",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.6",
+    "tailwindcss": "4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.1.1"
+  },
+  "packageManager": "pnpm@10.20.0",
+  "license": "Apache-2.0",
+  "author": "Daniel P. Harris",
+  "description": "OSMLS: an open-source MLS platform",
+  "engines": {
+    "node": ">=22"
+  },
+  "type": "module"
+}
