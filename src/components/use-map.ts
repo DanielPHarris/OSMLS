@@ -43,21 +43,23 @@ export function useMap(
         map.addControl(new lib.AttributionControl({ compact: false }), "bottom-right");
         map.addControl(new lib.NavigationControl({ showCompass: false }), "top-right");
 
-        let loaded = false;
+        // The map counts as available once its style has arrived. Pins and controls
+        // need nothing more, so a missing tile or a slow tile server afterwards
+        // does not take the map away.
+        let styled = false;
         const fail = () => {
-          if (loaded || cancelled) return;
+          if (styled || cancelled) return;
           setStatus("unavailable");
           setReady(null);
         };
-        // Errors after loading (a missing tile, say) do not take the map away.
         map.on("error", fail);
         giveUp = setTimeout(fail, 15_000);
         // Keep the map, its pins, and its credits in step when the window changes size.
         const fit = () => map?.resize();
         window.addEventListener("resize", fit);
         map.once("remove", () => window.removeEventListener("resize", fit));
-        map.on("load", () => {
-          loaded = true;
+        map.once("styledata", () => {
+          styled = true;
           clearTimeout(giveUp);
           if (cancelled || !map) return;
           setStatus("ready");

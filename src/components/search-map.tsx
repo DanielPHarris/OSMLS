@@ -40,11 +40,14 @@ export function SearchMap({
   config,
   pins,
   activeBounds,
+  statuses,
 }: {
   config: MapConfig;
   pins: MapPin[];
   /** Set when the results are limited to a map area. */
   activeBounds: MapBounds | null;
+  /** The statuses the current results are filtered by. */
+  statuses: readonly string[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -101,6 +104,9 @@ export function SearchMap({
 
   const withParams = (change: (p: URLSearchParams) => void) => {
     const params = new URLSearchParams(searchParams.toString());
+    // A first visit shows the default statuses without naming them in the URL.
+    // Name them now, or marking the search as submitted would widen it to every status.
+    if (!params.has("s")) for (const status of statuses) params.append("status", status);
     params.set("s", "1");
     change(params);
     return `${pathname}?${params}`;

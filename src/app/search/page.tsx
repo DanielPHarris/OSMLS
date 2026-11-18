@@ -115,7 +115,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       </form>
 
       <Suspense>
-        <SearchMap config={getMapConfig()} pins={pins} activeBounds={bounds ?? null} />
+        <SearchMap config={getMapConfig()} pins={pins} activeBounds={bounds ?? null} statuses={statuses} />
       </Suspense>
 
       <section aria-live="polite">

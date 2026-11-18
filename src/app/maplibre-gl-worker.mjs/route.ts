@@ -10,7 +10,11 @@ const workerFile = path.join(process.cwd(), "node_modules/maplibre-gl/dist/mapli
 let cached: Promise<Buffer> | undefined;
 
 export async function GET() {
-  cached ??= readFile(workerFile);
+  // A failed read is not remembered, so the next request tries again.
+  cached ??= readFile(workerFile).catch((error) => {
+    cached = undefined;
+    throw error;
+  });
   return new Response(new Uint8Array(await cached), {
     headers: {
       "Content-Type": "text/javascript; charset=utf-8",

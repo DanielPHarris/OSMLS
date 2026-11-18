@@ -120,15 +120,48 @@ test("an agent pins a listing and finds it by searching the map area", async ({ 
   await expect(page.getByTestId("result-count")).toHaveText("2 listings");
 });
 
+test("searching an area from the first view keeps the default statuses", async ({ page }) => {
+  await signIn(page, "sam.whitfield@osmls.example");
+  await mapReady(page, "search-map");
+  await expect(page.getByLabel("Active", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("Closed")).not.toBeChecked();
+
+  await page.getByRole("button", { name: "Search this area" }).click();
+  await expect(page).toHaveURL(/bounds=/);
+  await expect(page).toHaveURL(/status=Active/);
+  await expect(page.getByLabel("Active", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("Coming Soon")).toBeChecked();
+  await expect(page.getByLabel("Closed")).not.toBeChecked();
+  await expect(page.getByRole("table")).not.toContainText("Closed");
+});
+
+test("pins still show when the map's tiles cannot be loaded", async ({ page }) => {
+  // The style arrives, but every tile request fails.
+  await page.route("**/blank-map-style.json", (route) =>
+    route.fulfill({
+      json: {
+        version: 8,
+        sources: { base: { type: "raster", tiles: ["http://localhost:1/{z}/{x}/{y}.png"], tileSize: 256, attribution: "Test tiles" } },
+        layers: [{ id: "base", type: "raster", source: "base" }],
+      },
+    }),
+  );
+  await signIn(page, "sam.whitfield@osmls.example");
+  await mapReady(page, "search-map");
+  await expect(page.locator(".osmls-pin").first()).toBeVisible();
+  await expect(page.getByText("The map is unavailable right now.")).toHaveCount(0);
+});
+
 test("search still works when the map service cannot be reached", async ({ page }) => {
   await signIn(page, "sam.whitfield@osmls.example");
   await page.route("**/blank-map-style.json", (route) => route.abort());
   await page.goto("/search");
   await expect(page.getByText("The map is unavailable right now.")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId("result-count")).toContainText(/listings?$/);
-  await page.getByLabel("City").fill("Port Alder");
+  await expect(page.getByRole("table")).toContainText("Port Alder");
+  await page.getByLabel("City").fill("Cedar Hollow");
   await page.getByRole("button", { name: "Search", exact: true }).click();
-  await expect(page.getByTestId("result-count")).toContainText(/listing/);
+  await expect(page.getByRole("table")).toContainText("Cedar Hollow");
+  await expect(page.getByRole("table")).not.toContainText("Port Alder");
 
   // The listing form still takes typed coordinates.
   await page.goto("/listings/new");
