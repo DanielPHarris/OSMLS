@@ -8,3 +8,7 @@ export const EARLIEST_YEAR_BUILT = 1600;
 export const MAX_PHOTOS_PER_LISTING = 30;
 export const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 export const MAX_SEARCH_RESULTS = 100;
+/** Where maps open when there is nothing else to centre on. The demo's invented towns sit here. */
+export const DEFAULT_MAP_VIEW = { longitude: -122.26, latitude: 47.31, zoom: 10 };
+/** Used when MAP_STYLE_URL is not set. Any MapLibre-compatible style URL works. */
+export const DEFAULT_MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";

@@ -76,12 +76,15 @@ const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
 const between = (lo: number, hi: number) => lo + Math.floor(rand() * (hi - lo + 1));
 
 const streets = ["Alder St", "Birchwood Ave", "Cannery Row", "Dogwood Ln", "Eagle Crest Dr", "Fernhill Rd", "Granite Way", "Heron Ct", "Ironwood Pl", "Juniper Terrace"];
+// The towns are invented. Their map positions are arbitrary points chosen so the
+// demo has somewhere to show; pins do not mark real properties.
 const towns = [
-  { City: "Port Alder", PostalCode: "98001" },
-  { City: "Cedar Hollow", PostalCode: "98002" },
-  { City: "Maple Ridge", PostalCode: "98003" },
-  { City: "Stonebridge", PostalCode: "98004" },
-];
+  { City: "Port Alder", PostalCode: "98001", at: [47.31, -122.26] },
+  { City: "Cedar Hollow", PostalCode: "98002", at: [47.3, -122.2] },
+  { City: "Maple Ridge", PostalCode: "98003", at: [47.32, -122.32] },
+  { City: "Stonebridge", PostalCode: "98004", at: [47.36, -122.24] },
+] as const;
+const near = (centre: number) => Number((centre + (rand() - 0.5) * 0.04).toFixed(6));
 const remarks = [
   "Synthetic demo listing. Light-filled home with an updated kitchen and a fenced yard.",
   "Synthetic demo listing. Quiet street, new roof, and a detached two-car garage.",
@@ -103,8 +106,12 @@ for (let i = 0; i < 40; i++) {
     StreetNumber: String(between(100, 9900)),
     StreetName: pick(streets),
     UnitNumber: i % 10 === 3 ? String(between(1, 40)) : null,
-    ...town,
+    City: town.City,
+    PostalCode: town.PostalCode,
     StateOrProvince: "WA",
+    // A few listings have no pin, as some will in a real MLS.
+    Latitude: i % 8 === 6 ? null : near(town.at[0]),
+    Longitude: i % 8 === 6 ? null : near(town.at[1]),
     BedroomsTotal: i % 9 === 0 ? 0 : beds,
     BathroomsTotalInteger: i % 9 === 0 ? 0 : Math.max(1, beds - between(0, 2)),
     LivingArea: i % 9 === 0 ? null : between(700, 4200),

@@ -19,6 +19,18 @@ const isoDate = (label: string) =>
     .refine((s) => !Number.isNaN(Date.parse(s)), `${label} must be a real date.`);
 const today = () => new Date().toISOString().slice(0, 10);
 
+// Stored to six decimal places, which is about ten centimetres.
+const coordinate = (label: string, limit: number) =>
+  z.preprocess(
+    blankToNull,
+    z.coerce
+      .number({ error: `${label} must be a number.` })
+      .min(-limit, `${label} must be between -${limit} and ${limit}.`)
+      .max(limit, `${label} must be between -${limit} and ${limit}.`)
+      .transform((n) => Math.round(n * 1e6) / 1e6)
+      .nullable(),
+  );
+
 export const listingInputSchema = z
   .object({
     StandardStatus: z.enum(STANDARD_STATUSES, { error: "Choose a status." }),
@@ -71,6 +83,8 @@ export const listingInputSchema = z
         .nullable(),
     ),
     PublicRemarks: optionalText(4000),
+    Latitude: coordinate("Latitude", 90),
+    Longitude: coordinate("Longitude", 180),
     ClosePrice: z.preprocess(
       blankToNull,
       z.coerce.number().positive("Close price must be greater than zero.").max(99_999_999_999).nullable(),
@@ -93,6 +107,14 @@ export const listingInputSchema = z
         ctx.addIssue({ code: "custom", path: ["ClosePrice"], message: "Close price applies only to closed listings." });
       if (v.CloseDate != null)
         ctx.addIssue({ code: "custom", path: ["CloseDate"], message: "Close date applies only to closed listings." });
+    }
+    if ((v.Latitude == null) !== (v.Longitude == null)) {
+      const missing = v.Latitude == null ? "Latitude" : "Longitude";
+      ctx.addIssue({
+        code: "custom",
+        path: [missing],
+        message: "A location needs both latitude and longitude. Fill in both, or clear both.",
+      });
     }
     if (v.CloseDate != null && v.CloseDate < v.ListingContractDate)
       ctx.addIssue({ code: "custom", path: ["CloseDate"], message: "Close date cannot be before the listing contract date." });

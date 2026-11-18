@@ -36,6 +36,12 @@ export default async function ListingPage({
     ["Living area", listing.LivingArea ? `${listing.LivingArea.toLocaleString("en-US")} sq ft` : "—"],
     ["Lot size", listing.LotSizeAcres != null ? `${listing.LotSizeAcres} acres` : "—"],
     ["Year built", listing.YearBuilt ? String(listing.YearBuilt) : "—"],
+    [
+      "Map location",
+      listing.Latitude != null && listing.Longitude != null
+        ? `${listing.Latitude}, ${listing.Longitude}`
+        : "Not set",
+    ],
     ["Listing contract date", formatDate(listing.ListingContractDate)],
     ["On market date", formatDate(listing.OnMarketDate)],
     ["Original list price", formatMoney(listing.OriginalListPrice)],

@@ -27,6 +27,10 @@ From the demo, which uses synthetic listings and illustrated placeholder photos.
 
 ![Search form with filters and a results table](docs/screenshots/search.png)
 
+**Map search** (added after 0.1)
+
+![Search page with a map of listing pins, one opened to show its address, price, and status](docs/screenshots/map-search.png)
+
 **A listing, as MLS staff see it**
 
 ![Listing page with photos, details, and the listing agent](docs/screenshots/listing.png)
@@ -55,9 +59,49 @@ Rules behind it:
   The database refuses any attempt to edit or delete a history row.
 - Photos and listings are visible only to signed-in, active members.
 
-### Not in 0.1
+### Added since 0.1: map search
 
-Map search, documents, showing instructions, sold-record research and comparables,
+- **Pin a listing.** On the listing form, click the map to place a pin or drag it to
+  move it. Latitude and longitude fields show the same position and can be typed
+  instead. A location is optional, but it is both coordinates or neither. Changes
+  are recorded in the listing's history.
+- **See results on a map.** The search page shows a pin for each matching listing
+  that has a location. Selecting a pin shows the address, price, and status, with a
+  link to the listing. Pins can be reached and opened from the keyboard, and every
+  listing on the map is also in the results table.
+- **Search this area.** Limits results to the part of the map on screen, together
+  with every other filter. The area is kept in the page address, so a search can be
+  reloaded or shared with another member.
+- **Listings with no location** appear in ordinary searches marked "Location
+  unavailable". An area search leaves them out, and says how many, because they
+  cannot be placed inside the area.
+- **If the map cannot be loaded,** the search form, the results table, and the
+  listing form all keep working, and the page says the map is unavailable.
+
+Not included: drawing shapes or radius circles, turning an address into a location
+automatically, boundary layers, and map areas that cross the 180th meridian.
+
+#### The map service
+
+The map is drawn with [MapLibre GL JS](https://maplibre.org/). Where the map itself
+comes from is one setting, `MAP_STYLE_URL`, which takes any MapLibre-compatible
+style URL.
+
+- If it is not set, OSMLS uses [OpenFreeMap](https://openfreemap.org/)'s public
+  service, which needs no account or key. **That service comes with no availability
+  guarantee and may be discontinued without notice.** It is a default for demos.
+  Anyone running OSMLS for real use should choose a map tile service suited to
+  their needs, self-hosted or managed, and set `MAP_STYLE_URL` to it.
+- The map's credit line comes from the style (for the default: OpenFreeMap,
+  OpenMapTiles, and OpenStreetMap) and is always shown in full. Keep it.
+- When a member views a map, their browser requests map tiles directly from the
+  map service. No listing data is sent to it.
+- In the demo data, the towns are invented and pins are arbitrary points. They do
+  not mark real properties.
+
+### Not yet built
+
+Documents, showing instructions, sold-record research and comparables,
 days-on-market calculations, saved searches, alerts, email sharing, reports,
 administration screens, compliance flags, imports and exports, a RESO Web API
 endpoint, fair-housing checks on remarks, password reset, and production operations
@@ -119,13 +163,15 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the whole 0.1 workflow in a real browser
+pnpm test:e2e                            # the 0.1 workflow and map search in a real browser
 pnpm lint && pnpm typecheck
 ```
 
 Tests use their own database (`TEST_DATABASE_URL`), which is created and seeded
 automatically on the same PostgreSQL server. They never write to the development or
-demo database. The browser test starts its own server on port 3210.
+demo database. The browser tests start their own server on port 3210 and use a blank
+local map style, so they do not depend on an outside map service. The default map
+service was checked by hand in a production build, at desktop and phone widths.
 
 ## How it is built
 
@@ -137,7 +183,10 @@ demo database. The browser test starts its own server on port 3210.
   [src/lib/listings.ts](src/lib/listings.ts).
 - Operating rules an MLS would want to change are kept apart from the rest:
   permitted status changes in [src/lib/rules/status.ts](src/lib/rules/status.ts),
-  local formats and limits in [src/lib/rules/local.ts](src/lib/rules/local.ts).
+  local formats, limits, and where maps open in
+  [src/lib/rules/local.ts](src/lib/rules/local.ts).
+- A listing's location is two plain numeric columns, `Latitude` and `Longitude`.
+  PostGIS is not used.
 
 ### Data model
 
@@ -151,7 +200,7 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | --- | --- |
 | `Member.OsmlsRole` | `agent` or `staff` |
 | `Member.OsmlsUserId` | Links a member to their sign-in account |
-| `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; unused in 0.1 |
+| `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
 | `Media.OsmlsStoragePath` | File name of the stored photo |
 | `HistoryTransactional.OsmlsStaffCorrection` | Whether MLS staff made the change |
 | `HistoryTransactional.OsmlsCorrectionReason` | The reason staff gave |

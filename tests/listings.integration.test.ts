@@ -152,6 +152,69 @@ describe("listing changes and their history", () => {
   });
 });
 
+describe("map location", () => {
+  it("records setting, moving, and removing the pin in history", async () => {
+    const created = await createListing(listingAgent, input({ Latitude: "47.31", Longitude: "-122.26" }));
+    expect([created.Latitude, created.Longitude]).toEqual([47.31, -122.26]);
+
+    await updateListing(listingAgent, created.ListingKey, input({ Latitude: "47.32", Longitude: "-122.26" }));
+    const { changedFields } = await updateListing(listingAgent, created.ListingKey, input());
+    expect(changedFields.sort()).toEqual(["Latitude", "Longitude"]);
+
+    const rows = (await historyFor(created.ListingKey)).filter((r) => r.FieldName === "Latitude" || r.FieldName === "Longitude");
+    expect(rows.map((r) => [r.FieldName, r.PreviousValue, r.NewValue]).sort()).toEqual([
+      ["Latitude", "47.31", "47.32"],
+      ["Latitude", "47.32", null],
+      ["Longitude", "-122.26", null],
+    ]);
+  });
+
+  it("is refused by the database when half set or out of range", async () => {
+    const created = await createListing(listingAgent, input());
+    const set = (assignment: string) =>
+      db.execute(sql.raw(`update "Property" set ${assignment} where "ListingKey" = '${created.ListingKey}'`));
+    await expect(set(`"Latitude" = 47.3`)).rejects.toBeTruthy();
+    await expect(set(`"Latitude" = 91, "Longitude" = 0`)).rejects.toBeTruthy();
+    await expect(set(`"Latitude" = 0, "Longitude" = 181`)).rejects.toBeTruthy();
+    await expect(set(`"Latitude" = 47.3, "Longitude" = -122.2`)).resolves.toBeTruthy();
+  });
+});
+
+describe("search within a map area", () => {
+  it("returns listings inside the area, combined with other filters, and leaves out those with no pin", async () => {
+    // A street name unique to this run keeps earlier runs out of the counts.
+    const street = `Area Test Blvd ${Date.now()}`;
+    const make = (changes: Record<string, unknown>) => createListing(listingAgent, input({ StreetName: street, ...changes }));
+    const inside = await make({ Latitude: "10.5", Longitude: "20.5", ListPrice: "300000" });
+    const insideDear = await make({ Latitude: "10.6", Longitude: "20.6", ListPrice: "900000" });
+    const outside = await make({ Latitude: "12", Longitude: "20.5" });
+    const onEdge = await make({ Latitude: "11", Longitude: "21" });
+    const noPin = await make({});
+
+    const area = { west: 20, south: 10, east: 21, north: 11 };
+    const search = async (filters: Parameters<typeof searchListings>[0]) => {
+      const result = await searchListings({ address: street, ...filters });
+      return { keys: result.rows.map((r) => r.listing.ListingKey).sort(), withoutLocation: result.withoutLocation };
+    };
+    const sorted = (...listings: { ListingKey: string }[]) => listings.map((l) => l.ListingKey).sort();
+
+    // Ordinary search: everything, including the listing with no pin.
+    const all = await search({});
+    expect(all.keys).toEqual(sorted(inside, insideDear, outside, onEdge, noPin));
+    expect(all.withoutLocation).toBe(1);
+
+    // Area search: only pins inside or on the edge; the unpinned listing is left out but counted.
+    const inArea = await search({ bounds: area });
+    expect(inArea.keys).toEqual(sorted(inside, insideDear, onEdge));
+    expect(inArea.withoutLocation).toBe(1);
+
+    // Other filters still apply inside the area.
+    expect((await search({ bounds: area, maxPrice: 400000 })).keys).toEqual(sorted(inside));
+    expect((await search({ bounds: area, statuses: ["Pending"] })).keys).toEqual([]);
+    expect((await search({ bounds: { west: -10, south: -10, east: -5, north: -5 } })).keys).toEqual([]);
+  });
+});
+
 describe("search", () => {
   it("finds a listing by number, by address, and by combined filters", async () => {
     const created = await createListing(listingAgent, input({ StreetName: "Searchable Quartz Ln", ListPrice: "612345", BedroomsTotal: "5" }));

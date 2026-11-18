@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseListingInput } from "../src/lib/listing-input";
-import { sniffImageType } from "../src/lib/listings";
+import { parseBounds, sniffImageType } from "../src/lib/listings";
 import { canTransition, changeTypeForStatus, isTerminal } from "../src/lib/rules/status";
 
 const valid = {
@@ -88,6 +88,47 @@ describe("listing validation", () => {
     expect(parseListingInput({ ...valid, ClosePrice: "440000" }).ok).toBe(false);
     expect(parseListingInput({ ...valid, StandardStatus: "Closed", ClosePrice: "440000", CloseDate: "2026-01-01" }).ok).toBe(false);
   });
+});
+
+describe("map location validation", () => {
+  it("accepts a location, rounded to six decimal places", () => {
+    const result = parseListingInput({ ...valid, Latitude: "47.31234567", Longitude: "-122.2600001" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect([result.data.Latitude, result.data.Longitude]).toEqual([47.312346, -122.26]);
+  });
+
+  it("accepts a listing with no location", () => {
+    const result = parseListingInput({ ...valid, Latitude: "", Longitude: "" });
+    expect(result.ok && result.data.Latitude).toBeNull();
+  });
+
+  it("requires both coordinates or neither", () => {
+    const onlyLatitude = parseListingInput({ ...valid, Latitude: "47.3" });
+    expect(!onlyLatitude.ok && onlyLatitude.errors.Longitude).toMatch(/both latitude and longitude/);
+    const onlyLongitude = parseListingInput({ ...valid, Longitude: "-122.2" });
+    expect(!onlyLongitude.ok && onlyLongitude.errors.Latitude).toMatch(/both latitude and longitude/);
+  });
+
+  it.each([
+    ["Latitude", "90.1"],
+    ["Latitude", "-91"],
+    ["Longitude", "180.5"],
+    ["Longitude", "east"],
+  ])("rejects %s = %s", (field, value) => {
+    const result = parseListingInput({ ...valid, Latitude: "10", Longitude: "10", [field]: value });
+    expect(!result.ok && result.errors[field]).toBeTruthy();
+  });
+});
+
+describe("map area in a URL", () => {
+  it("reads west,south,east,north", () => {
+    expect(parseBounds("-122.3,47.2,-122.1,47.4")).toEqual({ west: -122.3, south: 47.2, east: -122.1, north: 47.4 });
+  });
+
+  it.each([undefined, "", "1,2,3", "a,b,c,d", "10,10,5,20", "10,20,20,10", "-200,0,10,10", "0,0,10,95"])(
+    "ignores %s",
+    (value) => expect(parseBounds(value)).toBeUndefined(),
+  );
 });
 
 describe("photo type detection", () => {
