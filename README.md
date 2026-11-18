@@ -167,6 +167,11 @@ pnpm test:e2e                            # the 0.1 workflow and map search in a 
 pnpm lint && pnpm typecheck
 ```
 
+Every pull request, and every push to `main`, runs these same commands plus a
+production build on GitHub
+([.github/workflows/checks.yml](.github/workflows/checks.yml)), in Chromium on
+Linux.
+
 Tests use their own database (`TEST_DATABASE_URL`), which is created and seeded
 automatically on the same PostgreSQL server. They never write to the development or
 demo database. The browser tests start their own server on port 3210 and use a blank
