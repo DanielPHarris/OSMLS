@@ -450,7 +450,7 @@ export async function searchListings(filters: SearchFilters, options: { asOf?: D
       officeName: office.OfficeName,
       firstPhotoKey: sql<string | null>`(
         select m."MediaKey" from "Media" m
-        where m."ResourceRecordKey" = ${property.ListingKey} and m."MediaCategory" = 'Photo'
+        where m."ResourceRecordKey" = "Property"."ListingKey" and m."MediaCategory" = 'Photo'
         order by m."Order" limit 1)`,
     })
     .from(property)

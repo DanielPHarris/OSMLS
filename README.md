@@ -249,9 +249,49 @@ and no adjustments are made between properties.
   no pin, found by ZIP code, shows no distance and is listed after those that have
   one.
 
+### Added since 0.1: saved searches and collections
+
+The first of four slices of "saved work, sharing, and alerts". The other three
+(printable reports, in-app activity, and email sharing with alerts) are not built.
+
+- **Saved searches.** Save the current search under a name, run it again, rename
+  it, update its criteria, or delete it. A saved search keeps the criteria, not the
+  results.
+- **Collections.** Named lists of listings. Add listings from search results or
+  from a listing's page; open a collection to see them as they are today.
+
+**Saved work does not grant access.** It is a member's private note of what to look
+at, never a way to see something.
+
+- It belongs to the member who created it. No one else can see or change it: not a
+  colleague in the same office, and not MLS staff.
+- Ownership is checked on the server for every read and every change. Asking for
+  someone else's saved search or collection gets the same "not found" as asking
+  for one that does not exist.
+- Running a saved search performs an ordinary search as the member is now, and
+  opening a collection reads each listing as the member may see it now. Showing
+  details and documents never appear in either.
+- "Only my listings" is saved as that choice, not as a member, so a saved search
+  cannot be used to search as someone else.
+- Nothing restricted is stored: a saved search holds criteria, and a collection
+  holds which listings are in it.
+- A suspended account can use none of its saved work. It is kept, and is there
+  unchanged if the account is reinstated.
+
+If the application no longer accepts something a search was saved with, that
+criterion is ignored when the search is run and the page says which ones were, since
+dropping a criterion usually widens the results.
+
+Limits, set in [src/lib/rules/local.ts](src/lib/rules/local.ts): 50 saved searches
+and 50 collections per member, 200 listings per collection, and names of up to 80
+characters that are unique for that member.
+
+Not included: sharing saved work with anyone, folders, notes, reordering, and MLS
+staff access to members' saved work.
+
 ### Not yet built
 
-Sharing with clients or the public, saved searches, alerts, email sharing, reports,
+Sharing with clients or the public, printable reports, alerts, email sharing,
 administration screens, compliance flags, imports and exports, a RESO Web API
 endpoint, fair-housing checks on remarks, password reset, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
@@ -319,7 +359,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, access control, and market research in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, market research, and saved work in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -371,11 +411,19 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
 | `Media.OsmlsStoragePath` | Generated file name of the stored photo or document |
 | `Media.OsmlsFileSize`, `Media.OsmlsFileHash` | Size and SHA-256 hash of a stored document |
+| `HistoryTransactional.OsmlsSequence` | The order history rows were written in |
+| `SavedSearch.OsmlsCriteria` | A saved search's criteria, in OSMLS's own form |
 | `HistoryTransactional.OsmlsStaffCorrection` | Whether MLS staff made the change |
 | `HistoryTransactional.OsmlsCorrectionReason` | The reason staff gave |
 
 "Listing agent" is not a separate role. It is the agent named in `ListAgentKey` on a
 given listing.
+
+Saved searches use the Data Dictionary's `SavedSearch` resource and its field
+names. Its `SearchQuery` field is defined for `$filter` and DMQL2 queries, which
+OSMLS does not produce, so the criteria are kept in `OsmlsCriteria` instead.
+Collections have no Data Dictionary resource; their tables are `OsmlsCollection` and
+`OsmlsCollectionListing`.
 
 OSMLS is an independent project. It is not affiliated with or endorsed by the Real
 Estate Standards Organization, and contains none of RESO's code or files.

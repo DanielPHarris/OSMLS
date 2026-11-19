@@ -14,6 +14,9 @@ import { DOCUMENT_PERMISSION_LABELS, type DocumentPermission } from "@/lib/looku
 import { canEdit, canViewHistory, getHistory, getListing } from "@/lib/listings";
 import { getMarketTimeline } from "@/lib/market-research";
 import { getMarketTime } from "@/lib/market-time";
+import { collectionsForListing } from "@/lib/saved-work";
+import { ActionForm } from "@/components/action-form";
+import { addToCollectionAction, removeFromCollectionAction } from "../../saved-work-actions";
 import type { StandardStatus } from "@/lib/lookups";
 import { isTerminal } from "@/lib/rules/status";
 import { requireMember } from "@/lib/session";
@@ -42,6 +45,8 @@ export default async function ListingPage({
   const history = canViewHistory(current) ? await getHistory(listing.ListingKey) : null;
   const marketTime = (await getMarketTime([listing.ListingKey])).get(listing.ListingKey);
   const timeline = await getMarketTimeline(listing.ListingKey);
+  // The viewer's own collections only.
+  const collections = await collectionsForListing(current, listing.ListingKey);
 
   const facts: [string, string][] = [
     ["Property type", listing.PropertyType],
@@ -186,6 +191,48 @@ export default async function ListingPage({
             ))}
           </tbody>
         </table>
+      </section>
+
+      <section className="card" aria-labelledby="collections-heading" data-testid="listing-collections">
+        <h2 id="collections-heading" className="text-base font-semibold">
+          Your collections
+        </h2>
+        {collections.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">
+            You have no collections yet.{" "}
+            <Link href="/collections" className="text-brand underline">
+              Create one
+            </Link>{" "}
+            to keep listings together.
+          </p>
+        ) : (
+          <ul className="mt-2 divide-y divide-line">
+            {collections.map((c) => (
+              <li key={c.CollectionKey} className="flex flex-wrap items-center justify-between gap-3 py-2">
+                <Link href={`/collections/${c.CollectionKey}`} className="text-sm font-medium text-brand underline">
+                  {c.CollectionName}
+                </Link>
+                {c.contains ? (
+                  <ActionForm action={removeFromCollectionAction.bind(null, c.CollectionKey, listing.ListingKey)} className="flex items-center gap-3">
+                    <span className="text-sm text-muted">In this collection</span>
+                    <button className="btn-secondary !px-3 !py-1" aria-label={`Remove from ${c.CollectionName}`}>
+                      Remove
+                    </button>
+                  </ActionForm>
+                ) : (
+                  <ActionForm action={addToCollectionAction}>
+                    <input type="hidden" name="collection" value={c.CollectionKey} />
+                    <input type="hidden" name="listing" value={listing.ListingKey} />
+                    <button className="btn-secondary !px-3 !py-1" aria-label={`Add to ${c.CollectionName}`}>
+                      Add
+                    </button>
+                  </ActionForm>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-2 text-xs text-muted">Only you can see which collections a listing is in.</p>
       </section>
 
       {showingVisible && (

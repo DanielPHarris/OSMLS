@@ -3,6 +3,8 @@ import {
   bigserial,
   boolean,
   check,
+  primaryKey,
+  uniqueIndex,
   date,
   index,
   integer,
@@ -243,6 +245,70 @@ export const historyTransactional = pgTable(
   ],
 );
 
+/*
+ * Saved work: a member's own saved searches and collections of listings.
+ * Private to the member who made them; see canUseSavedSearch and
+ * canUseCollection in src/lib/access.ts. Neither holds a copy of any listing.
+ */
+
+// Named after the Data Dictionary's SavedSearch resource. The criteria are kept in
+// OSMLS's own form, not as a $filter or DMQL2 query, so SearchQuery is not used.
+export const savedSearch = pgTable(
+  "SavedSearch",
+  {
+    SavedSearchKey: uuid().primaryKey().defaultRandom(),
+    MemberKey: uuid()
+      .notNull()
+      .references(() => member.MemberKey),
+    SavedSearchName: text().notNull(),
+    ResourceName: text().notNull().default("Property"),
+    // The criteria, as src/lib/search-criteria.ts defines them.
+    OsmlsCriteria: jsonb().notNull(),
+    SearchQueryHumanReadable: text().notNull(),
+    OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
+    ModificationTimestamp: timestamptz().notNull().defaultNow(),
+  },
+  (t) => [
+    check("SavedSearch_name_not_blank", sql`${t.SavedSearchName} IS NOT NULL AND length(trim(${t.SavedSearchName})) > 0`),
+    // A member cannot have two with the same name, whatever the capitalisation.
+    uniqueIndex("SavedSearch_member_name_unique").on(t.MemberKey, sql`lower(${t.SavedSearchName})`),
+  ],
+);
+
+export const collection = pgTable(
+  "OsmlsCollection",
+  {
+    CollectionKey: uuid().primaryKey().defaultRandom(),
+    MemberKey: uuid()
+      .notNull()
+      .references(() => member.MemberKey),
+    CollectionName: text().notNull(),
+    OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
+    ModificationTimestamp: timestamptz().notNull().defaultNow(),
+  },
+  (t) => [
+    check("OsmlsCollection_name_not_blank", sql`${t.CollectionName} IS NOT NULL AND length(trim(${t.CollectionName})) > 0`),
+    uniqueIndex("OsmlsCollection_member_name_unique").on(t.MemberKey, sql`lower(${t.CollectionName})`),
+  ],
+);
+
+export const collectionListing = pgTable(
+  "OsmlsCollectionListing",
+  {
+    CollectionKey: uuid()
+      .notNull()
+      .references(() => collection.CollectionKey, { onDelete: "cascade" }),
+    ListingKey: uuid()
+      .notNull()
+      .references(() => property.ListingKey),
+    AddedTimestamp: timestamptz().notNull().defaultNow(),
+    // Order of adding, for listings added in the same instant.
+    AddedSequence: bigserial({ mode: "number" }).notNull(),
+  },
+  // A listing is in a collection once or not at all.
+  (t) => [primaryKey({ columns: [t.CollectionKey, t.ListingKey] })],
+);
+
 // ---- Sign-in library tables (Better Auth core schema) ----
 
 export const user = pgTable("user", {
@@ -300,3 +366,5 @@ export type Member = typeof member.$inferSelect;
 export type Property = typeof property.$inferSelect;
 export type Media = typeof media.$inferSelect;
 export type HistoryRow = typeof historyTransactional.$inferSelect;
+export type SavedSearch = typeof savedSearch.$inferSelect;
+export type Collection = typeof collection.$inferSelect;

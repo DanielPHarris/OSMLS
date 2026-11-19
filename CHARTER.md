@@ -42,6 +42,12 @@ production-ready.**
   recalculates past figures. Every worked example from the design is a test, each
   setting has a test showing it changes the result, and a browser test covers the
   screens against seeded data. Comparables are not a valuation.
+- Saved work, sharing, and alerts is under way: slice 1 of 4, saved searches and
+  collections, is implemented. They are private to their creator and grant no
+  access; ownership is tested for every operation and every kind of viewer, and
+  overlapping requests are tested. Printable reports, in-app activity, and email
+  sharing with alerts (slices 2 to 4) are not built. Scheduled email alerts remain
+  outstanding until slice 4.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -260,7 +266,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
 
    | Slice | Delivers | Status |
    | --- | --- | --- |
-   | 1 | Saved searches and collections, private to each member | Not started; specified in issue #12 |
+   | 1 | Saved searches and collections, private to each member | Done 2026-11-19 (issue #12) |
    | 2 | Printable reports, in an agent copy and a client copy | Not started |
    | 3 | In-app activity: what is new and changed for each saved search | Not started |
    | 4 | Email sharing with client-safe share pages, and scheduled email alerts | Not started |

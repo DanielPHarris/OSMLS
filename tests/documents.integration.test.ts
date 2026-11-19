@@ -416,6 +416,19 @@ describe("who may read documents", () => {
   });
 });
 
+describe("photo thumbnails in search results", () => {
+  it("gives each listing its own first photo, and none to a listing without one", async () => {
+    const street = `Thumbnail St ${Date.now()}`;
+    const [withPhoto, without, other] = [await newListing({ StreetName: street }), await newListing({ StreetName: street }), await newListing({ StreetName: street })];
+    const first = await addPhoto(who.listingAgent, withPhoto.ListingKey, png());
+    await addPhoto(who.listingAgent, withPhoto.ListingKey, png());
+    const theirs = await addPhoto(who.listingAgent, other.ListingKey, png());
+    const { rows } = await searchListings({ address: street });
+    const thumbnails = Object.fromEntries(rows.map((r) => [r.listing.ListingKey, r.firstPhotoKey]));
+    expect(thumbnails).toEqual({ [withPhoto.ListingKey]: first.MediaKey, [without.ListingKey]: null, [other.ListingKey]: theirs.MediaKey });
+  });
+});
+
 describe("who may read showing instructions", () => {
   const showingOf = async (listingKey: string, viewer: Member | null) => {
     const found = (await getListing(listingKey, viewer))!;
