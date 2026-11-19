@@ -24,7 +24,7 @@ import {
 } from "../lib/lookups";
 
 /*
- * Tables and columns are named after the RESO Data Dictionary 2.0 resources and
+ * Tables and columns are named after the RESO Data Dictionary 2.1 resources and
  * fields (Property, Member, Office, Media, HistoryTransactional).
  * Columns that are not in the Data Dictionary start with "Osmls".
  * The lower-case tables at the bottom belong to the sign-in library.

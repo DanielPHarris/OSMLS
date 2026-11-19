@@ -1,4 +1,4 @@
-// Lookup values use the display names from the RESO Data Dictionary 2.0.
+// Lookup values use the display names from the RESO Data Dictionary 2.1.
 
 export const STANDARD_STATUSES = [
   "Active",

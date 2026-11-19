@@ -145,8 +145,12 @@ toolkit and Data Dictionary.
   validation and OData parsing libraries. They are under active release; the latest
   listed were dated 2026-11-15.
 - The reference server implements Data Dictionary 2.0 and Web API Core 2.1.0, with
-  Add/Edit and EntityEvent. RESO's certification page names Data Dictionary 2.0 as
-  the certified version. Data Dictionary 2.1 appears to be in process.
+  Add/Edit and EntityEvent.
+- Data Dictionary edition (researched 2026-11-18): RESO certifies on 2.1, which was
+  approved on October 5, 2026. Its certification tool treats 2.1 as the default
+  and the only edition that certifies; a 2.0 run is a retest. The page on reso.org
+  that still names 2.0 is out of date. RESO's policy is to certify on the latest
+  minor edition, and a 2.2 release has been approved for the end of 2026.
 - **The tools are not open source.** The repository's LICENSE is the RESO End-User
   License Agreement, not an open-source license. It grants a royalty-free license to
   use the standard inside one's products, bars redistributing it unaltered as a
@@ -182,18 +186,22 @@ toolkit and Data Dictionary.
 
 ### 7.3 How OSMLS relates to RESO
 
-- Name listing, member, and office fields after Data Dictionary 2.0.
+- Name fields and lookup values after the edition of the Data Dictionary that RESO
+  currently certifies. That is 2.1.
 - Do not copy RESO's code or metadata file into the repository. Do not build on the
   reference server.
 - Use RESO's certification tool as an external check once OSMLS has a Web API
   endpoint, which is after 0.1.
-- Describe the project factually ("field names follow the RESO Data Dictionary
-  2.0"), with no RESO logo and no certification claim.
+- Describe the project factually ("field names and lookup values follow the RESO
+  Data Dictionary 2.1"), with no RESO logo and no certification claim.
 - The repository contains none of RESO's code or files, uses no RESO logo, and
   claims no certification, so neither unknown in 7.1 applies to what is published.
-- Open question: one RESO page named Data Dictionary 2.0 as the certified version,
-  while RESO's Data Dictionary site listed 2.1 as the current certification version
-  on 2026-11-18. OSMLS follows 2.0 until this is settled.
+- Resolved 2026-11-18: OSMLS was first built against 2.0. Every field name and lookup
+  value it uses was then compared with the 2.1 reference and is the same in both,
+  so no code changed. The fields that 2.1 renamed are not ones OSMLS uses. 2.1 adds
+  a tenth property type, "Commercial Real Estate", which OSMLS does not offer.
+- Not verified: data types against the Data Dictionary, and whether OSMLS would
+  pass RESO's certification tests. Both wait for the Web API work (section 10).
 
 Considered and not recommended: Python with Django, which provides sign-in,
 administration screens, and history with less code but puts OSMLS on a different

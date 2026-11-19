@@ -12,8 +12,9 @@ an attempt to match the feature set of commercial MLS systems.
 
 - It has not been used by a real MLS and has had no security review.
 - It is **not RESO certified** and has not been run through RESO's certification
-  tests. Field names follow the RESO Data Dictionary 2.0; there is no RESO Web API
-  endpoint yet.
+  tests. Its field names and lookup values follow the RESO Data Dictionary 2.1.
+  Data types have not been checked against the Data Dictionary, and there is no
+  RESO Web API endpoint yet.
 - All people, offices, and listings in the demo are synthetic.
 
 [CHARTER.md](CHARTER.md) records the project's purpose, decisions, scope, and what
@@ -267,11 +268,16 @@ service was checked by hand in a production build, at desktop and phone widths.
 
 ### Data model
 
-Tables and columns are named after RESO Data Dictionary 2.0 resources and fields:
+Tables and columns are named after RESO Data Dictionary 2.1 resources and fields:
 `Property`, `Member`, `Office`, `Media`, and `HistoryTransactional`. A document is a `Media` row with
 `MediaCategory` "Document", and its permission is the Data Dictionary's
 `Media.Permission` (stored as "Agent Only", "Office Only", or "Private"). Lookup values
 such as `StandardStatus` use the Data Dictionary's display names.
+
+What has and has not been checked: every field name and lookup value OSMLS uses was
+compared with the Data Dictionary 2.1 reference and matches. Data types, and
+whether OSMLS would pass RESO's certification tests, have not been checked. OSMLS
+offers nine of the ten 2.1 property types; "Commercial Real Estate" is not offered.
 
 Columns that are not in the Data Dictionary start with `Osmls`:
 
