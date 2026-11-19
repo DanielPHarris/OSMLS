@@ -254,7 +254,32 @@ Done:
 
 Next, in this order unless contributors and the maintainer agree otherwise:
 
-1. Saved searches, collections, email sharing, reports, alerts.
+1. Saved work, sharing, and alerts. Planned on 2026-11-19 as one phase in four
+   slices, each with its own issue and pull request. The phase is complete only
+   when all four are.
+
+   | Slice | Delivers | Status |
+   | --- | --- | --- |
+   | 1 | Saved searches and collections, private to each member | Not started; specified in issue #12 |
+   | 2 | Printable reports, in an agent copy and a client copy | Not started |
+   | 3 | In-app activity: what is new and changed for each saved search | Not started |
+   | 4 | Email sharing with client-safe share pages, and scheduled email alerts | Not started |
+
+   Three rules hold across the phase:
+
+   - **Alerts are not finished at slice 3.** Slice 3 delivers notifications inside
+     the application. Scheduled email alerts remain outstanding until slice 4.
+   - **The client boundary starts in slice 2.** A client printout carries
+     information outside the MLS. Client copies are built from an explicit list of
+     permitted fields, and slice 4's share pages reuse that same list. Agent copies
+     show only what the requesting member may see.
+   - **Saved work does not grant access.** Saved searches and collections belong
+     to their creator, with ownership checked on every read and change. Opening
+     one applies the member's current account status and current listing
+     permissions.
+
+   Email settings, link expiry, revocation, and retention are settled in slice 4's
+   issue, not before.
 2. Administration screens and access suspension. Finer-grained staff permissions
    belong here, as would changing market-time settings without a redeployment.
 3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
