@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ReportLinks } from "@/components/report-view";
 import { StatusBadge } from "@/components/status-badge";
 import {
   fieldLabel,
@@ -99,6 +100,7 @@ export default async function ListingPage({
           <Link href={`/listings/${listing.ListingKey}/comparables`} className="btn-secondary">
             Find comparables
           </Link>
+          <ReportLinks href={(copy) => `/reports/listing/${listing.ListingKey}?copy=${copy}`} />
           {editable && (
             <Link href={`/listings/${listing.ListingKey}/edit`} className="btn">
               {isStaff ? "Correct listing" : "Edit listing"}

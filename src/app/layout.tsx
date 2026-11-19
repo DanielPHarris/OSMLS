@@ -14,7 +14,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en">
       <body className="min-h-screen">
-        <header className="border-b border-line bg-white">
+        <header className="border-b border-line bg-white print:hidden">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
             <Link href="/search" className="text-lg font-bold text-brand">
               OSMLS
@@ -45,7 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
-        <footer className="mx-auto max-w-6xl px-4 pb-8 text-center text-xs text-muted">
+        <footer className="mx-auto max-w-6xl px-4 pb-8 text-center text-xs text-muted print:hidden">
           OSMLS 0.1 development build. All people, offices, and listings are synthetic demo data.
         </footer>
       </body>

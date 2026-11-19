@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { SearchMap, type MapPin } from "@/components/search-map";
+import { ReportLinks } from "@/components/report-view";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
 import { SEARCH_SORTS, parseBounds, searchListings } from "@/lib/listings";
@@ -211,6 +212,9 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
                 Create a collection
               </Link>
             )}
+            <span className="ml-auto flex gap-3">
+              <ReportLinks href={(copy) => `/reports/search?${criteriaToParams(criteria)}&copy=${copy}`} />
+            </span>
           </ActionForm>
           <div className="card overflow-x-auto !p-0">
             <table className="w-full border-collapse">
