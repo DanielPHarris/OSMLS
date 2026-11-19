@@ -1,5 +1,6 @@
 import { SEARCH_SORTS, parseBounds, type SearchFilters, type SearchSort } from "./listings";
 import { STANDARD_STATUSES, type StandardStatus } from "./lookups";
+import { isCalendarDate, isOwnKey } from "./validation";
 
 /*
  * The one definition of what a listing search can be asked for. The search page
@@ -60,8 +61,8 @@ const LABELS: Record<string, string> = {
 };
 
 const isStatus = (v: unknown): v is StandardStatus => (STANDARD_STATUSES as readonly unknown[]).includes(v);
-const isDate = (v: unknown): v is string =>
-  typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+const isDate = isCalendarDate;
+const isSort = (v: unknown): v is SearchSort => isOwnKey(SEARCH_SORTS, v);
 const cleanText = (v: unknown): string | undefined => {
   const s = typeof v === "string" ? v.trim().slice(0, 200) : "";
   return s === "" ? undefined : s;
@@ -81,7 +82,7 @@ export function criteriaFromParams(p: Params): SearchCriteria {
   // "s" marks a submitted search, where no ticked status means every status.
   out.statuses = p.s !== undefined ? ([] as string[]).concat(p.status ?? []).filter(isStatus) : DEFAULT_STATUSES;
   const sort = first(p.sort);
-  out.sort = sort && sort in SEARCH_SORTS ? (sort as SearchSort) : "changed";
+  out.sort = isSort(sort) ? sort : "changed";
   const bounds = first(p.bounds);
   out.bounds = parseBounds(bounds) ? bounds : undefined;
   out.mine = first(p.mine) === "1";
@@ -136,7 +137,7 @@ export function criteriaFromStored(stored: unknown): { criteria: SearchCriteria;
       if (!Array.isArray(value)) ignored.push(LABELS.statuses);
       else if (dropped > 0) ignored.push(dropped === 1 ? "one status" : `${dropped} statuses`);
     } else if (key === "sort") {
-      if (typeof value === "string" && value in SEARCH_SORTS) criteria.sort = value as SearchSort;
+      if (isSort(value)) criteria.sort = value;
       else ignored.push(LABELS.sort);
     } else if (key === "bounds") {
       if (typeof value === "string" && parseBounds(value)) criteria.bounds = value;
@@ -191,6 +192,6 @@ export function describeCriteria(c: SearchCriteria): string {
   if (c.minClosePrice != null || c.maxClosePrice != null)
     parts.push(`close price ${c.minClosePrice != null ? money(c.minClosePrice) : "any"} to ${c.maxClosePrice != null ? money(c.maxClosePrice) : "any"}`);
   if (c.bounds) parts.push("within a map area");
-  if (c.sort !== "changed") parts.push(`sorted by ${SEARCH_SORTS[c.sort].toLowerCase()}`);
+  if (c.sort !== "changed" && isSort(c.sort)) parts.push(`sorted by ${SEARCH_SORTS[c.sort].toLowerCase()}`);
   return parts.join(" · ");
 }

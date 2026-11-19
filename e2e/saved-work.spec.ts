@@ -83,7 +83,8 @@ test("an agent keeps saved searches and collections, and no one else can see the
   const database = new Client({ connectionString: process.env.TEST_DATABASE_URL });
   await database.connect();
   await database.query(`update "SavedSearch" set "OsmlsCriteria" = $1::jsonb where "SavedSearchKey" = $2`, [
-    JSON.stringify({ address: "Comparable Ct", statuses: ["Closed", "Sold"], sort: "by_magic" }),
+    // A status that does not exist, a sort name every object inherits, and a date not on the calendar.
+    JSON.stringify({ address: "Comparable Ct", statuses: ["Closed", "Sold"], sort: "constructor", closedFrom: "2026-02-31" }),
     savedKey,
   ]);
   await database.end();
@@ -91,11 +92,22 @@ test("an agent keeps saved searches and collections, and no one else can see the
   const ignored = page.getByTestId("ignored-criteria");
   await expect(ignored).toContainText("one status");
   await expect(ignored).toContainText("sort order");
+  await expect(ignored).toContainText("closed on or after");
   await expect(ignored).not.toContainText("Sold");
+  await expect(ignored).not.toContainText("constructor");
+  await expect(ignored).not.toContainText("2026-02-31");
   await expect(page.getByTestId("result-count")).toHaveText("8 listings");
   // Once the member searches again, the notice has done its job.
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByTestId("ignored-criteria")).toHaveCount(0);
+
+  // The same values typed straight into a search address are ignored too, not an error.
+  const typed = await page.request.get("/search?s=1&address=Comparable+Ct&status=Closed&sort=constructor&closedFrom=2026-02-31&closedTo=2026-04-31");
+  expect(typed.status()).toBe(200);
+  await page.goto("/search?s=1&address=Comparable+Ct&status=Closed&sort=__proto__&closedFrom=2026-02-31");
+  await expect(page.getByTestId("result-count")).toHaveText("8 listings");
+  await expect(page.getByLabel("Sort by")).toHaveValue("changed");
+  await expect(page.getByLabel("Closed on or after")).toHaveValue("");
 
   // ---- Rename ----
   await page.goto("/saved-searches");

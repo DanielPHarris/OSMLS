@@ -77,6 +77,36 @@ describe("search criteria", () => {
     expect(ignored.join(" ")).not.toMatch(/script|listAgentKey|Sold|by_magic/);
   });
 
+  // Names every object has, which a plain "in" check would accept as sort orders.
+  const INHERITED = ["constructor", "toString", "hasOwnProperty", "__proto__", "valueOf"];
+  // Well-formed, and accepted by JavaScript's date parser, but not days that exist.
+  const IMPOSSIBLE_DATES = ["2026-02-31", "2026-02-29", "2026-04-31", "2026-13-01", "2026-00-10", "2026-01-00"];
+
+  it("does not accept an inherited property name as a sort order, from an address or from storage", () => {
+    for (const sort of INHERITED) {
+      expect(criteriaFromParams({ s: "1", sort }).sort, sort).toBe("changed");
+      const stored = criteriaFromStored({ statuses: [], sort });
+      expect(stored.criteria.sort, sort).toBe("changed");
+      expect(stored.ignored, sort).toEqual(["sort order"]);
+      // And whatever came out can always be described.
+      expect(describeCriteria(stored.criteria)).toBe("Every status");
+    }
+    expect(criteriaFromParams({ s: "1", sort: "dom_high" }).sort).toBe("dom_high");
+  });
+
+  it("does not accept a date that is not on the calendar, from an address or from storage", () => {
+    for (const date of IMPOSSIBLE_DATES) {
+      const fromAddress = criteriaFromParams({ s: "1", closedFrom: date, closedTo: date });
+      expect([fromAddress.closedFrom, fromAddress.closedTo], date).toEqual([undefined, undefined]);
+      const stored = criteriaFromStored({ statuses: [], closedFrom: date, closedTo: date });
+      expect([stored.criteria.closedFrom, stored.criteria.closedTo], date).toEqual([undefined, undefined]);
+      expect(stored.ignored.sort(), date).toEqual(["closed on or after", "closed on or before"]);
+    }
+    // Real dates, including a leap day, are kept.
+    expect(criteriaFromParams({ s: "1", closedFrom: "2028-02-29", closedTo: "2026-12-31" })).toMatchObject({ closedFrom: "2028-02-29", closedTo: "2026-12-31" });
+    expect(criteriaFromStored({ statuses: [], closedFrom: "2028-02-29" })).toMatchObject({ criteria: { closedFrom: "2028-02-29" }, ignored: [] });
+  });
+
   it("drops nothing from criteria that are all still valid", () => {
     const stored = { city: "Port Alder", statuses: ["Closed"], sort: "dom_low", mine: true, minBeds: 3 };
     expect(criteriaFromStored(stored)).toEqual({ criteria: { ...DEFAULT_CRITERIA, ...stored }, ignored: [] });

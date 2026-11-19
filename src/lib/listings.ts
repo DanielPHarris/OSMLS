@@ -18,6 +18,7 @@ import type { StandardStatus } from "./lookups";
 import { MAX_PHOTO_BYTES, MAX_PHOTOS_PER_LISTING, MAX_SEARCH_RESULTS } from "./rules/local";
 import { getMarketTime, marketFactsSql, type MarketTime } from "./market-time";
 import { MARKET_TIME_SETTINGS } from "./rules/market-time";
+import { isCalendarDate, isOwnKey } from "./validation";
 import { INITIAL_STATUSES, canTransition, changeTypeForStatus, isTerminal } from "./rules/status";
 
 export type Actor = Pick<Member, "MemberKey" | "MemberMlsId" | "OsmlsRole" | "OfficeKey" | "MemberStatus">;
@@ -383,7 +384,7 @@ export const SEARCH_SORTS = {
 } as const;
 export type SearchSort = keyof typeof SEARCH_SORTS;
 
-const isIsoDate = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
+const isIsoDate = (s: string | undefined): s is string => isCalendarDate(s);
 
 export type MapBounds = { west: number; south: number; east: number; north: number };
 
@@ -441,7 +442,8 @@ export async function searchListings(filters: SearchFilters, options: { asOf?: D
     closed_recent: [sql`${property.CloseDate} desc nulls last`, ...tieBreak],
     dom_low: [asc(dom), ...tieBreak],
     dom_high: [desc(dom), ...tieBreak],
-  }[f.sort && f.sort in SEARCH_SORTS ? f.sort : "changed"];
+    // An own-key check: a plain "in" would accept "constructor" and find no order.
+  }[isOwnKey(SEARCH_SORTS, f.sort) ? f.sort : "changed"];
 
   const rows = await db
     .select({

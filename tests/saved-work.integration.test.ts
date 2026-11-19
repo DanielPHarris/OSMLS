@@ -135,6 +135,23 @@ describe("saved searches belong to their creator", () => {
     expect(opened.criteria).toMatchObject({ city: "Port Alder", statuses: ["Active"], sort: "changed" });
   });
 
+  it("runs a search, not an error, when stored criteria hold an inherited sort name or an impossible date", async () => {
+    const mine = await createSavedSearch(owner, name("Poisoned"), criteria({ city: undefined, address: "Comparable Ct", statuses: ["Closed"] }));
+    for (const poison of [{ sort: "constructor" }, { sort: "toString" }, { closedFrom: "2026-02-31" }, { closedTo: "2026-04-31" }]) {
+      await db.execute(sql`update "SavedSearch" set "OsmlsCriteria" = ${JSON.stringify({ address: "Comparable Ct", statuses: ["Closed"], ...poison })}::jsonb where "SavedSearchKey" = ${mine.SavedSearchKey}`);
+      const opened = (await openSavedSearch(owner, mine.SavedSearchKey))!;
+      expect(opened.ignored, JSON.stringify(poison)).toHaveLength(1);
+      const result = await searchListings(criteriaToFilters(opened.criteria, owner));
+      expect(result.rows.length, JSON.stringify(poison)).toBe(8);
+    }
+  });
+
+  it("ignores an inherited sort name or an impossible date handed straight to the search", async () => {
+    const base = { address: "Comparable Ct", statuses: ["Closed" as const] };
+    for (const filters of [{ sort: "constructor" }, { sort: "__proto__" }, { closedFrom: "2026-02-31" }, { closedTo: "2026-02-30" }])
+      expect((await searchListings({ ...base, ...(filters as object) })).rows.length, JSON.stringify(filters)).toBe(8);
+  });
+
   it("returns the same listings in the same order as the search done by hand", async () => {
     const asked = criteria({ city: undefined, address: "Comparable Ct", statuses: ["Closed"], sort: "dom_high" });
     const saved = await createSavedSearch(owner, name("Sold on the court"), asked);

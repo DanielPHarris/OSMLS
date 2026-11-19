@@ -97,7 +97,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
           {text("maxClosePrice", "Maximum close price", { inputMode: "numeric" })}
           <label className="label">
             Sort by
-            <select name="sort" defaultValue={sort in SEARCH_SORTS ? sort : "changed"} className="field">
+            <select name="sort" defaultValue={sort} className="field">
               {Object.entries(SEARCH_SORTS).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
