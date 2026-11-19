@@ -3,7 +3,7 @@
  * and the rule that restricted content is left out for viewers not allowed it.
  */
 import { createHash } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, pool } from "../src/db";
@@ -11,13 +11,23 @@ import { historyTransactional, media, member, type Member } from "../src/db/sche
 import {
   addDocument,
   documentPath,
+  documentsDir,
   getDocumentForViewer,
   removeDocument,
   replaceDocument,
   sniffDocumentType,
   updateDocument,
 } from "../src/lib/documents";
-import { ListingError, createListing, getListing, getPhoto, removePhoto, searchListings, updateListing } from "../src/lib/listings";
+import {
+  ListingError,
+  addPhoto,
+  createListing,
+  getListing,
+  getPhoto,
+  removePhoto,
+  searchListings,
+  updateListing,
+} from "../src/lib/listings";
 import { MAX_DOCUMENT_BYTES, MAX_DOCUMENTS_PER_LISTING } from "../src/lib/rules/local";
 
 let who: Record<"listingAgent" | "sameOffice" | "otherOffice" | "staff" | "suspendedAgent" | "suspendedStaff", Member>;
@@ -218,6 +228,77 @@ describe("storing and changing documents", () => {
     expect(row?.NewValue).toBeNull();
   });
 
+  it("keeps one file and a truthful history when two replacements overlap", async () => {
+    // Repeated, because the outcome depends on which request gets the listing first.
+    for (let round = 0; round < 6; round++) {
+      const listing = await newListing();
+      const original = pdf(`original ${round}`);
+      const doc = await addDocument(who.listingAgent, listing.ListingKey, { bytes: original, name: "Contested", permission: "Private" });
+      const a = pdf(`replacement A ${round}`);
+      const b = pdf(`replacement B ${round}`);
+      const [first, second] = await Promise.all([
+        replaceDocument(who.listingAgent, doc.MediaKey, a),
+        replaceDocument(who.listingAgent, doc.MediaKey, b),
+      ]);
+
+      const [final] = await db.select().from(media).where(eq(media.MediaKey, doc.MediaKey));
+      expect([sha(a), sha(b)]).toContain(final.OsmlsFileHash);
+      // Only the file the record points at is left on disk.
+      const paths = [doc.OsmlsStoragePath, first.OsmlsStoragePath, second.OsmlsStoragePath];
+      expect(paths.filter((p) => existsSync(documentPath(p)))).toEqual([final.OsmlsStoragePath]);
+
+      // History is a chain: original -> one replacement -> the other, ending at the stored file.
+      const rows = (await documentHistory(listing.ListingKey)).filter((r) => r.PreviousValue?.startsWith("Replaced"));
+      expect(rows).toHaveLength(2);
+      const hashIn = (value: string | null) => value!.match(/SHA-256 ([0-9a-f]{64})/)![1];
+      const links = rows.map((r) => [hashIn(r.PreviousValue), hashIn(r.NewValue)]);
+      const fromOriginal = links.find(([from]) => from === sha(original))!;
+      const fromMiddle = links.find(([from]) => from !== sha(original))!;
+      expect(fromOriginal).toBeDefined();
+      expect(fromMiddle[0]).toBe(fromOriginal[1]);
+      expect(fromMiddle[1]).toBe(final.OsmlsFileHash);
+
+      // Deleting afterwards leaves nothing behind.
+      await removeDocument(who.listingAgent, doc.MediaKey);
+      expect(paths.filter((p) => existsSync(documentPath(p)))).toEqual([]);
+    }
+  });
+
+  it("leaves no file behind when a replacement and a deletion overlap", async () => {
+    for (let round = 0; round < 6; round++) {
+      const listing = await newListing();
+      const doc = await addDocument(who.listingAgent, listing.ListingKey, { bytes: pdf(`o${round}`), name: "Going", permission: "Private" });
+      const before = new Set(readdirSync(documentsDir()));
+      const [replaced, removed] = await Promise.allSettled([
+        replaceDocument(who.listingAgent, doc.MediaKey, pdf(`r${round}`)),
+        removeDocument(who.listingAgent, doc.MediaKey),
+      ]);
+      expect(removed.status).toBe("fulfilled");
+      // The replacement either happened first, or found the document already gone.
+      if (replaced.status === "rejected") expect(String(replaced.reason)).toContain("Document not found.");
+
+      expect(await db.select().from(media).where(eq(media.MediaKey, doc.MediaKey))).toHaveLength(0);
+      expect(existsSync(documentPath(doc.OsmlsStoragePath))).toBe(false);
+      // No new file survives either, whichever order they ran in.
+      expect(readdirSync(documentsDir()).filter((f) => !before.has(f))).toEqual([]);
+      // Exactly one deletion is recorded, and it names the file that was actually stored last.
+      const deletions = (await documentHistory(listing.ListingKey)).filter((r) => r.PreviousValue?.startsWith("Deleted"));
+      expect(deletions).toHaveLength(1);
+    }
+  });
+
+  it("records a photo's removal once when two removals overlap", async () => {
+    const listing = await newListing();
+    const photo = await addPhoto(who.listingAgent, listing.ListingKey, png());
+    const results = await Promise.allSettled([
+      removePhoto(who.listingAgent, photo.MediaKey),
+      removePhoto(who.listingAgent, photo.MediaKey),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const rows = await db.select().from(historyTransactional).where(eq(historyTransactional.ResourceRecordKey, listing.ListingKey));
+    expect(rows.filter((r) => r.FieldName === "Media" && r.NewValue === null)).toHaveLength(1);
+  });
+
   it("is refused by the database if a document has no permission, name, or hash", async () => {
     const listing = await newListing();
     const doc = await addDocument(who.listingAgent, listing.ListingKey, { bytes: pdf("x"), name: "Check", permission: "Private" });
@@ -226,6 +307,7 @@ describe("storing and changing documents", () => {
     await expect(set(`"Permission" = null`)).rejects.toBeTruthy();
     await expect(set(`"Permission" = 'Public'`)).rejects.toBeTruthy();
     await expect(set(`"ShortDescription" = ' '`)).rejects.toBeTruthy();
+    await expect(set(`"ShortDescription" = null`)).rejects.toBeTruthy();
     await expect(set(`"OsmlsFileHash" = null`)).rejects.toBeTruthy();
     await expect(set(`"MediaCategory" = 'Video'`)).rejects.toBeTruthy();
   });

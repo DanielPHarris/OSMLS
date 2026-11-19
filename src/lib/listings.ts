@@ -298,12 +298,14 @@ export async function addPhoto(
 
 export async function removePhoto(actor: Actor, mediaKey: string, correctionReason?: string | null) {
   const removed = await db.transaction(async (tx) => {
-    const [photo] = await tx
-      .select()
-      .from(media)
-      .where(and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Photo")));
+    const isThisPhoto = and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Photo"));
+    // An unlocked look, only to learn which listing to lock.
+    const [pointer] = await tx.select({ listingKey: media.ResourceRecordKey }).from(media).where(isThisPhoto);
+    if (!pointer) throw new ListingError("Photo not found.");
+    const listing = await lockListing(tx, pointer.listingKey);
+    // Read the photo once the lock is held, so an overlapping removal is seen.
+    const [photo] = await tx.select().from(media).where(isThisPhoto).for("update");
     if (!photo) throw new ListingError("Photo not found.");
-    const listing = await lockListing(tx, photo.ResourceRecordKey);
     const correction = authorizeChange(actor, listing, correctionReason);
     await tx.delete(media).where(eq(media.MediaKey, mediaKey));
     await tx.insert(historyTransactional).values({

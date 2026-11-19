@@ -63,20 +63,29 @@ const describeFile = (d: Pick<Media, "ShortDescription" | "MediaType" | "OsmlsFi
   `${d.ShortDescription} (${d.MediaType}, ${d.OsmlsFileSize} bytes, SHA-256 ${d.OsmlsFileHash})`;
 
 /**
- * Finds a document for someone who wants to change it, and locks its listing.
+ * Finds a document for someone who wants to change it.
+ *
+ * Changes to a listing's documents are serialised by locking the listing. The
+ * document is read only after that lock is held, so two overlapping requests
+ * cannot both act on the same stale record: the second sees what the first left.
+ *
  * To anyone who may not even see the document it does not exist: they get the
  * same answer as for a key that was never issued.
  */
 async function findForChange(tx: Tx, actor: Actor, mediaKey: string): Promise<{ current: Media; listing: Property }> {
-  const [current] = /^[0-9a-f-]{36}$/i.test(mediaKey)
-    ? await tx
-        .select()
-        .from(media)
-        .where(and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Document")))
-    : [];
-  if (!current) throw new ListingError("Document not found.");
-  const listing = await lockListing(tx, current.ResourceRecordKey);
-  if (!canViewDocument(actor, listing, current.Permission)) throw new ListingError("Document not found.");
+  const notFound = () => new ListingError("Document not found.");
+  if (!/^[0-9a-f-]{36}$/i.test(mediaKey)) throw notFound();
+  const isThisDocument = and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Document"));
+
+  // An unlocked look, only to learn which listing to lock. Nothing else is taken from it.
+  const [pointer] = await tx.select({ listingKey: media.ResourceRecordKey }).from(media).where(isThisDocument);
+  if (!pointer) throw notFound();
+  const listing = await lockListing(tx, pointer.listingKey);
+
+  // The record as it stands now that no one else can change it.
+  const [current] = await tx.select().from(media).where(isThisDocument).for("update");
+  if (!current || current.ResourceRecordKey !== listing.ListingKey) throw notFound();
+  if (!canViewDocument(actor, listing, current.Permission)) throw notFound();
   return { current, listing };
 }
 

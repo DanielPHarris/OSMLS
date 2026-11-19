@@ -189,9 +189,10 @@ export const media = pgTable(
     check("Media_MediaCategory_valid", sql.raw(`"MediaCategory" IN (${sqlList(MEDIA_CATEGORIES)})`)),
     check("Media_Permission_valid", sql.raw(`"Permission" IN (${sqlList(DOCUMENT_PERMISSIONS)})`)),
     // A document always has a permission and a name; nothing is visible by omission.
+    // Each column is tested for NULL by name: a CHECK passes when its result is unknown.
     check(
       "Media_document_is_complete",
-      sql`${t.MediaCategory} <> 'Document' OR (${t.Permission} IS NOT NULL AND length(trim(${t.ShortDescription})) > 0 AND ${t.OsmlsFileHash} IS NOT NULL AND ${t.OsmlsFileSize} IS NOT NULL)`,
+      sql`${t.MediaCategory} <> 'Document' OR (${t.Permission} IS NOT NULL AND ${t.ShortDescription} IS NOT NULL AND length(trim(${t.ShortDescription})) > 0 AND ${t.OsmlsFileHash} IS NOT NULL AND ${t.OsmlsFileSize} IS NOT NULL)`,
     ),
     index("Media_ResourceRecordKey_idx").on(t.ResourceRecordKey),
   ],

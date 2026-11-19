@@ -1,0 +1,2 @@
+ALTER TABLE "Media" DROP CONSTRAINT "Media_document_is_complete";--> statement-breakpoint
+ALTER TABLE "Media" ADD CONSTRAINT "Media_document_is_complete" CHECK ("Media"."MediaCategory" <> 'Document' OR ("Media"."Permission" IS NOT NULL AND "Media"."ShortDescription" IS NOT NULL AND length(trim("Media"."ShortDescription")) > 0 AND "Media"."OsmlsFileHash" IS NOT NULL AND "Media"."OsmlsFileSize" IS NOT NULL));
