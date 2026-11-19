@@ -42,8 +42,8 @@ production-ready.**
   recalculates past figures. Every worked example from the design is a test, each
   setting has a test showing it changes the result, and a browser test covers the
   screens against seeded data. Comparables are not a valuation.
-- Saved work, sharing, and alerts is under way: slices 1, 2 and 3 of 4 are
-  delivered and slice 4 is in progress. Saved searches and collections (slice 1) are private to their
+- Saved work, sharing, and alerts is implemented: all four slices are
+  delivered. Saved searches and collections (slice 1) are private to their
   creator and grant no access; ownership is tested for every operation and every
   kind of viewer, and overlapping requests are tested. Printable reports (slice 2)
   come as an agent copy and a client copy. A client copy is built from one explicit
@@ -53,10 +53,13 @@ production-ready.**
   checkpoint the member moves only by marking activity as seen. A test commits a
   change late and confirms it is not skipped. To make that safe, changes to
   listings are committed one at a time; how much that limits a busy MLS has not
-  been measured. Email sharing with scheduled alerts (slice 4) is in progress
-  under issue #18, so the phase is not complete. Its links for clients reuse the
-  client-copy list, and the scheduled alerts built so far go to the member
-  only.
+  been measured. Sharing and scheduled alerts (slice 4) give a client a link to
+  a listing or a collection, built from the same client-copy list, and email a
+  member the activity on their saved searches. Tests send real email to a mail
+  catcher, read the whole shared response, and cover every way a link's access
+  ends. Email cannot be delivered exactly once: an alert whose outcome is not
+  known is retried up to three sends, then pauses and says so. Bounces are not
+  handled.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -278,7 +281,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | 1 | Saved searches and collections, private to each member | Done 2026-11-19 (issue #12) |
    | 2 | Printable reports, in an agent copy and a client copy | Done 2026-11-19 (issue #14) |
    | 3 | In-app activity: what is new and changed for each saved search | Done 2026-11-19 (issue #16) |
-   | 4 | Email sharing with client-safe share pages, and scheduled email alerts | In progress (issue #18) |
+   | 4 | Email sharing with client-safe share pages, and scheduled email alerts | Done 2026-11-19 (issue #18) |
 
    Three rules hold across the phase:
 
@@ -296,8 +299,13 @@ Next, in this order unless contributors and the maintainer agree otherwise:
      one applies the member's current account status and current listing
      permissions.
 
-   Email settings, link expiry, revocation, and retention are settled in slice 4's
+   Email settings, link expiry, revocation, and retention were settled in slice 4's
    issue (#18).
+
+   Decided by the maintainer on 2026-11-19: in this phase scheduled alerts go to
+   the member who owns the saved search, and email to clients is manual sharing.
+   Scheduled email to clients is deferred and has no place in the order below
+   yet.
 2. Administration screens and access suspension. Finer-grained staff permissions
    belong here, as would changing market-time settings without a redeployment.
 3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
