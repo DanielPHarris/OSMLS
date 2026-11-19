@@ -112,9 +112,66 @@ style URL.
 - In the demo data, the towns are invented and pins are arbitrary points. They do
   not mark real properties.
 
+### Added since 0.1: documents and showing instructions
+
+Both carry information that not every member should see, so each has access rules,
+enforced on the server in one place ([src/lib/access.ts](src/lib/access.ts)).
+
+**Who is who.** "Listing office" is the one office named on the listing, not the
+whole brokerage. "MLS staff" is an active account that holds the staff role. A
+suspended (inactive) account can do nothing, whatever its role. Anything the tables
+below do not allow is refused.
+
+**Documents.** Each document has one permission. A new document starts at the most
+restrictive.
+
+| Permission | Who can view and download |
+| --- | --- |
+| Listing agent only (the default) | The listing agent and MLS staff |
+| Listing office only | The listing agent, agents in the listing office, and MLS staff |
+| All MLS members | Any active member |
+
+- The listing agent can add, rename, replace, and delete documents and change their
+  permission, until the listing is Closed, Canceled, or Expired. MLS staff can at
+  any time, as a correction with a reason.
+- PDF, JPEG, and PNG only, identified by the file's content, up to 15 MB each and
+  25 per listing. The limits are in
+  [src/lib/rules/local.ts](src/lib/rules/local.ts).
+- Files are kept in a folder nothing serves directly, under generated names. The
+  only way to one is a download route that checks access on every request and
+  always sends the file as a download.
+- A document someone may not see is left out of what they are sent, and asking for
+  it directly gets the same "not found" as a document that does not exist.
+- Replacing or deleting a document destroys the old file. History keeps its name,
+  type, size, and SHA-256 hash, but not its contents.
+
+**Showing instructions.** Instructions, requirements, a contact, and lockbox type
+and location.
+
+| Listing status | Who can view |
+| --- | --- |
+| Coming Soon, Active, Active Under Contract, Pending, Hold, Withdrawn | Any active member |
+| Closed, Canceled, Expired, and any other status | The listing agent, agents in the listing office, and MLS staff |
+
+Showing details never appear in search results.
+
+**Limits you should know about**
+
+- **Files are not scanned for malware.** Checking that a file is a PDF or an image
+  says what type it is. It does not show the file is safe to open, PDFs included.
+- **Entry codes are a usage restriction, not a guarantee.** OSMLS has no field for
+  lockbox combinations or gate codes, and the forms tell agents not to enter them.
+  Nothing stops someone typing a code into free text or uploading a file that
+  contains one.
+- No earlier versions of a replaced document are kept.
+- There is no record of who viewed or downloaded a document.
+- Files are stored on local disk only.
+- Change history, which describes documents by name, is visible to MLS staff only.
+- There is no export. Any added later must use the same access rules.
+
 ### Not yet built
 
-Documents, showing instructions, sold-record research and comparables,
+Sharing with clients or the public, sold-record research and comparables,
 days-on-market calculations, saved searches, alerts, email sharing, reports,
 administration screens, compliance flags, imports and exports, a RESO Web API
 endpoint, fair-housing checks on remarks, password reset, and production operations
@@ -139,7 +196,9 @@ value in [.env.example](.env.example).
 | --- | --- |
 | `alex.rivera@osmls.example` | Agent, Harborview Realty (Demo) |
 | `sam.whitfield@osmls.example` | Agent, Summit Line Properties (Demo) |
+| `jordan.okafor@osmls.example` | Agent, Harborview Realty (Demo), the same office as Alex |
 | `morgan.ellis@osmls.example` | MLS staff |
+| `riley.chen@osmls.example` | Suspended agent: can sign in, but is refused everything |
 
 The secrets in `docker-compose.yml` and `.env.example` are for local demos only.
 
@@ -176,7 +235,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the 0.1 workflow and map search in a real browser
+pnpm test:e2e                            # the workflow, map search, and access control in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -209,7 +268,9 @@ service was checked by hand in a production build, at desktop and phone widths.
 ### Data model
 
 Tables and columns are named after RESO Data Dictionary 2.0 resources and fields:
-`Property`, `Member`, `Office`, `Media`, and `HistoryTransactional`. Lookup values
+`Property`, `Member`, `Office`, `Media`, and `HistoryTransactional`. A document is a `Media` row with
+`MediaCategory` "Document", and its permission is the Data Dictionary's
+`Media.Permission` (stored as "Agent Only", "Office Only", or "Private"). Lookup values
 such as `StandardStatus` use the Data Dictionary's display names.
 
 Columns that are not in the Data Dictionary start with `Osmls`:
@@ -219,7 +280,8 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `Member.OsmlsRole` | `agent` or `staff` |
 | `Member.OsmlsUserId` | Links a member to their sign-in account |
 | `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
-| `Media.OsmlsStoragePath` | File name of the stored photo |
+| `Media.OsmlsStoragePath` | Generated file name of the stored photo or document |
+| `Media.OsmlsFileSize`, `Media.OsmlsFileHash` | Size and SHA-256 hash of a stored document |
 | `HistoryTransactional.OsmlsStaffCorrection` | Whether MLS staff made the change |
 | `HistoryTransactional.OsmlsCorrectionReason` | The reason staff gave |
 

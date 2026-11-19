@@ -28,6 +28,54 @@ export type PropertyType = (typeof PROPERTY_TYPES)[number];
 
 export const MEMBER_STATUSES = ["Active", "Inactive"] as const;
 
+export const MEDIA_CATEGORIES = ["Photo", "Document"] as const;
+
+/*
+ * Who may see a document. The stored values are Data Dictionary Media.Permission
+ * values; the labels are what OSMLS shows. Ordered from most to least restrictive.
+ */
+export const DOCUMENT_PERMISSIONS = ["Agent Only", "Office Only", "Private"] as const;
+export type DocumentPermission = (typeof DOCUMENT_PERMISSIONS)[number];
+export const DOCUMENT_PERMISSION_LABELS: Record<DocumentPermission, string> = {
+  "Agent Only": "Listing agent only",
+  "Office Only": "Listing office only",
+  Private: "All MLS members",
+};
+/** A new document is as restricted as it can be until someone chooses otherwise. */
+export const DEFAULT_DOCUMENT_PERMISSION: DocumentPermission = "Agent Only";
+
+export const SHOWING_REQUIREMENTS = [
+  "24 Hour Notice",
+  "Appointment Only",
+  "Call Listing Agent",
+  "Call Listing Office",
+  "Call Manager",
+  "Call Owner",
+  "Call Tenant",
+  "Combination Lock Box",
+  "Do Not Show",
+  "Email Listing Agent",
+  "Key In Office",
+  "Lockbox",
+  "No Lockbox",
+  "No Sign",
+  "Restricted Hours",
+  "See Remarks",
+  "Showing Service",
+  "Text Listing Agent",
+] as const;
+export const SHOWING_CONTACT_TYPES = ["Agent", "Occupant", "Owner", "Property Manager"] as const;
+export const LOCK_BOX_TYPES = [
+  "Call Listing Office",
+  "Call Seller Direct",
+  "Combo",
+  "None",
+  "Other",
+  "See Remarks",
+  "SentriLock",
+  "Supra",
+] as const;
+
 // OSMLS roles. "Listing agent" is not a separate role: it is the agent named in
 // ListAgentKey on a given listing.
 export const ROLES = ["agent", "staff"] as const;

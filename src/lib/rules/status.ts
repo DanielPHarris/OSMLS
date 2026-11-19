@@ -30,6 +30,20 @@ export function isTerminal(status: StandardStatus): boolean {
   return STATUS_TRANSITIONS[status].length === 0;
 }
 
+/**
+ * The statuses in which any active member may read a listing's showing
+ * instructions. In every other status, including any added later, only the
+ * listing agent, the listing office, and MLS staff may.
+ */
+export const SHOWING_OPEN_TO_MEMBERS_STATUSES: readonly StandardStatus[] = [
+  "Coming Soon",
+  "Active",
+  "Active Under Contract",
+  "Pending",
+  "Hold",
+  "Withdrawn",
+];
+
 const OFF_MARKET_BUT_OPEN: readonly StandardStatus[] = [
   "Active Under Contract",
   "Pending",

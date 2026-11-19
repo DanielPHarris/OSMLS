@@ -1,7 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { StatusBadge } from "@/components/status-badge";
-import { fieldLabel, formatDate, formatDateTime, formatHistoryValue, formatMoney } from "@/lib/format";
+import {
+  fieldLabel,
+  formatDate,
+  formatDateTime,
+  formatFileSize,
+  formatFileType,
+  formatHistoryValue,
+  formatMoney,
+} from "@/lib/format";
+import { DOCUMENT_PERMISSION_LABELS, type DocumentPermission } from "@/lib/lookups";
 import { canEdit, canViewHistory, getHistory, getListing } from "@/lib/listings";
 import type { StandardStatus } from "@/lib/lookups";
 import { isTerminal } from "@/lib/rules/status";
@@ -21,9 +30,10 @@ export default async function ListingPage({
   searchParams: Promise<{ notice?: string }>;
 }) {
   const current = await requireMember();
-  const found = await getListing((await params).key);
+  // getListing leaves out whatever this viewer may not see.
+  const found = await getListing((await params).key, current);
   if (!found) notFound();
-  const { listing, agent, office, photos } = found;
+  const { listing, agent, office, photos, documents, showingVisible } = found;
   const notice = NOTICES[(await searchParams).notice ?? ""];
   const isStaff = current.OsmlsRole === "staff";
   const editable = canEdit(current, listing) && (isStaff || !isTerminal(listing.StandardStatus as StandardStatus));
@@ -118,6 +128,57 @@ export default async function ListingPage({
           {agent.MemberDirectPhone && <p className="text-sm">{agent.MemberDirectPhone}</p>}
         </section>
       </div>
+
+      {showingVisible && (
+        <section className="card" aria-labelledby="showing-heading" data-testid="showing">
+          <h2 id="showing-heading" className="text-base font-semibold">
+            Showing instructions
+          </h2>
+          <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
+            {(
+              [
+                ["Requirements", listing.ShowingRequirements.join(", ")],
+                ["Contact", [listing.ShowingContactName, listing.ShowingContactPhone].filter(Boolean).join(", ")],
+                ["Contact is the", listing.ShowingContactType.join(", ")],
+                ["Lockbox type", listing.LockBoxType.join(", ")],
+                ["Lockbox location", listing.LockBoxLocation ?? ""],
+              ] as [string, string][]
+            ).map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+                <dd className="text-sm font-medium">{value || "—"}</dd>
+              </div>
+            ))}
+          </dl>
+          <h3 className="mt-4 text-sm font-semibold">Instructions</h3>
+          <p className="mt-1 whitespace-pre-line text-sm">{listing.ShowingInstructions ?? "None entered."}</p>
+        </section>
+      )}
+
+      {documents.length > 0 && (
+        <section className="card" aria-labelledby="documents-heading" data-testid="documents">
+          <h2 id="documents-heading" className="text-base font-semibold">
+            Documents
+          </h2>
+          <ul className="mt-3 divide-y divide-line">
+            {documents.map((d) => (
+              <li key={d.MediaKey} className="flex flex-wrap items-baseline justify-between gap-3 py-2">
+                <div>
+                  <a href={`/documents/${d.MediaKey}`} className="font-medium text-brand underline">
+                    {d.ShortDescription}
+                  </a>
+                  <span className="ml-2 text-sm text-muted">
+                    {formatFileType(d.MediaType)}, {formatFileSize(d.OsmlsFileSize)}
+                  </span>
+                </div>
+                <span className="text-xs text-muted">
+                  Visible to: {DOCUMENT_PERMISSION_LABELS[d.Permission as DocumentPermission] ?? "restricted"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {history && (
         <section className="card overflow-x-auto" aria-labelledby="history-heading">

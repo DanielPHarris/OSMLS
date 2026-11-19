@@ -7,6 +7,20 @@ export const formatMoney = (n: number | null | undefined) => (n == null ? "—" 
 export const formatDateTime = (d: Date) => dateTime.format(d);
 export const formatDate = (iso: string | null | undefined) => (iso ? dateOnly.format(new Date(`${iso}T00:00:00Z`)) : "—");
 
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null) return "—";
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+const FILE_TYPE_NAMES: Record<string, string> = {
+  "application/pdf": "PDF",
+  "image/jpeg": "JPEG",
+  "image/png": "PNG",
+};
+export const formatFileType = (mime: string) => FILE_TYPE_NAMES[mime] ?? mime;
+
 const MONEY_FIELDS = new Set(["ListPrice", "ClosePrice"]);
 /** Show a stored history value the way a person would write it. */
 export function formatHistoryValue(field: string, value: string | null): string {

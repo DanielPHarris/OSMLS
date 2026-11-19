@@ -13,7 +13,15 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
-import { MEMBER_STATUSES, PROPERTY_TYPES, ROLES, STANDARD_STATUSES, sqlList } from "../lib/lookups";
+import {
+  DOCUMENT_PERMISSIONS,
+  MEDIA_CATEGORIES,
+  MEMBER_STATUSES,
+  PROPERTY_TYPES,
+  ROLES,
+  STANDARD_STATUSES,
+  sqlList,
+} from "../lib/lookups";
 
 /*
  * Tables and columns are named after the RESO Data Dictionary 2.0 resources and
@@ -102,6 +110,15 @@ export const property = pgTable(
     YearBuilt: integer(),
     PublicRemarks: text(),
 
+    // How the property is shown. Restricted: see src/lib/access.ts.
+    ShowingInstructions: text(),
+    ShowingRequirements: text().array().notNull().default(sql`'{}'::text[]`),
+    ShowingContactName: text(),
+    ShowingContactPhone: text(),
+    ShowingContactType: text().array().notNull().default(sql`'{}'::text[]`),
+    LockBoxType: text().array().notNull().default(sql`'{}'::text[]`),
+    LockBoxLocation: text(),
+
     ListAgentKey: uuid()
       .notNull()
       .references(() => member.MemberKey),
@@ -157,12 +174,27 @@ export const media = pgTable(
     // MIME type, for example image/jpeg.
     MediaType: text().notNull(),
     Order: integer().notNull(),
+    // For a document, the name people see.
     ShortDescription: text(),
-    // File name inside MEDIA_DIR.
+    // Who may see a document. Photos have none: every active member sees them.
+    Permission: text(),
+    // File name inside MEDIA_DIR (photos) or its documents folder.
     OsmlsStoragePath: text().notNull(),
+    OsmlsFileSize: integer(),
+    // SHA-256 of the stored file, as hexadecimal.
+    OsmlsFileHash: text(),
     ModificationTimestamp: timestamptz().notNull().defaultNow(),
   },
-  (t) => [index("Media_ResourceRecordKey_idx").on(t.ResourceRecordKey)],
+  (t) => [
+    check("Media_MediaCategory_valid", sql.raw(`"MediaCategory" IN (${sqlList(MEDIA_CATEGORIES)})`)),
+    check("Media_Permission_valid", sql.raw(`"Permission" IN (${sqlList(DOCUMENT_PERMISSIONS)})`)),
+    // A document always has a permission and a name; nothing is visible by omission.
+    check(
+      "Media_document_is_complete",
+      sql`${t.MediaCategory} <> 'Document' OR (${t.Permission} IS NOT NULL AND length(trim(${t.ShortDescription})) > 0 AND ${t.OsmlsFileHash} IS NOT NULL AND ${t.OsmlsFileSize} IS NOT NULL)`,
+    ),
+    index("Media_ResourceRecordKey_idx").on(t.ResourceRecordKey),
+  ],
 );
 
 /*
