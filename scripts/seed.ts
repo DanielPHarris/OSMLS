@@ -1,13 +1,13 @@
 /*
  * Loads synthetic demo data: two brokerages, six agents, two MLS staff, two
- * suspended accounts, and forty listings. Every person, office, and address here is invented.
+ * suspended accounts, and fifty-five listings with up to a year of history. Every person, office, and address here is invented.
  * Does nothing if the database already has offices.
  */
 import { eq } from "drizzle-orm";
 import { db, pool } from "../src/db";
 import { member, office, user } from "../src/db/schema";
 import { createAuth } from "../src/lib/auth";
-import { createListing, updateListing, type Actor } from "../src/lib/listings";
+import { createListing, localDate, updateListing, type Actor } from "../src/lib/listings";
 import type { ListingInput } from "../src/lib/listing-input";
 
 const password = process.env.DEMO_PASSWORD;
@@ -95,58 +95,191 @@ const remarks = [
   "Synthetic demo listing. Open floor plan with hardwood floors and a covered deck.",
   "Synthetic demo listing. Corner lot close to parks, schools, and transit.",
 ];
-const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+// Demo listings need a past: sales to research, days on market to count. The
+// seed gives each change a time, which only the seed and tests are able to do.
+const ago = (days: number) => new Date(Date.now() - days * 86_400_000);
+const dateAgo = (days: number) => localDate(ago(days));
 
+type Change = { daysAgo: number; set: Partial<ListingInput> };
+let listingCount = 0;
+
+/** Enters a listing some days ago and applies later changes, each on its own day. */
+async function story(agent: Actor, fields: ListingInput, enteredDaysAgo: number, changes: Change[] = []) {
+  const current: ListingInput = { ...fields, ListingContractDate: dateAgo(enteredDaysAgo) };
+  const created = await createListing(agent, current, { at: ago(enteredDaysAgo) });
+  for (const change of changes) {
+    Object.assign(current, change.set);
+    await updateListing(agent, created.ListingKey, current, null, { at: ago(change.daysAgo) });
+  }
+  listingCount++;
+  return created;
+}
+
+const closed = (daysAgo: number, price: number): Change => ({
+  daysAgo,
+  set: { StandardStatus: "Closed", ClosePrice: price, CloseDate: dateAgo(daysAgo) },
+});
+const status = (daysAgo: number, to: ListingInput["StandardStatus"]): Change => ({ daysAgo, set: { StandardStatus: to } });
+
+const showing = {
+  ShowingInstructions: "Synthetic demo instructions. Call the listing agent to arrange a time. Remove shoes.",
+  ShowingRequirements: ["Appointment Only", "Call Listing Agent"],
+  ShowingContactName: "Listing agent",
+  ShowingContactPhone: "555-0199",
+  ShowingContactType: ["Agent"],
+  LockBoxType: ["Supra"],
+  LockBoxLocation: "Front door",
+};
+const noShowing = {
+  ShowingInstructions: null,
+  ShowingRequirements: [],
+  ShowingContactName: null,
+  ShowingContactPhone: null,
+  ShowingContactType: [],
+  LockBoxType: [],
+  LockBoxLocation: null,
+};
+
+// ---- Forty assorted listings across the four towns ----
 for (let i = 0; i < 40; i++) {
   const agent = agents[i % agents.length];
   const town = pick(towns);
   const beds = between(1, 5);
   const price = between(250, 1400) * 1000;
-  const base: ListingInput = {
+  const land = i % 9 === 0;
+  const fields: ListingInput = {
     StandardStatus: "Active",
-    PropertyType: i % 9 === 0 ? "Land" : i % 7 === 0 ? "Residential Income" : "Residential",
+    PropertyType: land ? "Land" : i % 7 === 0 ? "Residential Income" : "Residential",
     ListPrice: price,
-    ListingContractDate: daysAgo(between(5, 120)),
+    ListingContractDate: dateAgo(1),
     StreetNumber: String(between(100, 9900)),
     StreetName: pick(streets),
     UnitNumber: i % 10 === 3 ? String(between(1, 40)) : null,
     City: town.City,
+    CountyOrParish: "Alder County",
+    ParcelNumber: `${1000 + i}-${String(100 + ((i * 37) % 900))}-${String(10 + (i % 90))}`,
     PostalCode: town.PostalCode,
     StateOrProvince: "WA",
     // A few listings have no pin, as some will in a real MLS.
     Latitude: i % 8 === 6 ? null : near(town.at[0]),
     Longitude: i % 8 === 6 ? null : near(town.at[1]),
-    BedroomsTotal: i % 9 === 0 ? 0 : beds,
-    BathroomsTotalInteger: i % 9 === 0 ? 0 : Math.max(1, beds - between(0, 2)),
-    LivingArea: i % 9 === 0 ? null : between(700, 4200),
+    BedroomsTotal: land ? 0 : beds,
+    BathroomsTotalInteger: land ? 0 : Math.max(1, beds - between(0, 2)),
+    LivingArea: land ? null : between(700, 4200),
     LotSizeAcres: Number((between(5, 300) / 100).toFixed(2)),
-    YearBuilt: i % 9 === 0 ? null : between(1925, 2025),
+    YearBuilt: land ? null : between(1925, 2025),
     PublicRemarks: pick(remarks),
-    ShowingInstructions:
-      i % 9 === 0 ? null : "Synthetic demo instructions. Call the listing agent to arrange a time. Remove shoes.",
-    ShowingRequirements: i % 9 === 0 ? [] : ["Appointment Only", "Call Listing Agent"],
-    ShowingContactName: i % 9 === 0 ? null : "Listing agent",
-    ShowingContactPhone: i % 9 === 0 ? null : "555-0199",
-    ShowingContactType: i % 9 === 0 ? [] : ["Agent"],
-    LockBoxType: i % 9 === 0 ? [] : ["Supra"],
-    LockBoxLocation: i % 9 === 0 ? null : "Front door",
+    ...(land ? noShowing : showing),
     ClosePrice: null,
     CloseDate: null,
   };
-  const created = await createListing(agent, base);
-  const edit = (changes: Partial<ListingInput>) =>
-    updateListing(agent, created.ListingKey, Object.assign(base, changes));
 
-  // Give some listings a realistic past so history and status filters have content.
-  if (i % 4 === 1) await edit({ ListPrice: price - 15000 });
-  if (i % 5 === 2) await edit({ StandardStatus: "Pending" });
+  // Each has been on the market a different length of time, and some have moved on.
+  const entered = between(6, 75);
+  const changes: Change[] = [];
+  if (i % 4 === 1) changes.push({ daysAgo: Math.max(1, entered - 5), set: { ListPrice: price - 15000 } });
   if (i % 10 === 7) {
-    await edit({ StandardStatus: "Pending" });
-    await edit({ StandardStatus: "Closed", ClosePrice: price - 8000, CloseDate: daysAgo(1) });
+    // Sold some months ago.
+    const enteredLongAgo = between(120, 330);
+    const pendingAfter = between(8, 45);
+    const closedAfter = pendingAfter + between(25, 40);
+    await story(agent, fields, enteredLongAgo, [
+      status(enteredLongAgo - pendingAfter, "Pending"),
+      closed(enteredLongAgo - closedAfter, price - between(0, 20) * 1000),
+    ]);
+    continue;
   }
-  if (i % 13 === 5) await edit({ StandardStatus: "Withdrawn" });
+  if (i % 5 === 2) changes.push(status(Math.max(1, entered - between(3, 5)), "Pending"));
+  if (i % 13 === 5) changes.push(status(1, "Withdrawn"));
+  await story(agent, fields, entered, changes);
 }
 
-console.log(`Seeded 3 offices, ${actors.length} members, 40 listings.`);
+// ---- A street of similar homes, so comparables have something to compare ----
+const comparableStreet = (number: number, changes: Partial<ListingInput>): ListingInput => ({
+  StandardStatus: "Active",
+  PropertyType: "Residential",
+  ListPrice: 600000,
+  ListingContractDate: dateAgo(1),
+  StreetNumber: String(number),
+  StreetName: "Comparable Ct",
+  UnitNumber: null,
+  City: "Port Alder",
+  CountyOrParish: "Alder County",
+  ParcelNumber: `2000-${number}-01`,
+  PostalCode: "98001",
+  StateOrProvince: "WA",
+  // All within a few hundred yards of one another.
+  Latitude: Number((47.31 + ((number % 7) - 3) * 0.0006).toFixed(6)),
+  Longitude: Number((-122.26 + ((number % 5) - 2) * 0.0008).toFixed(6)),
+  BedroomsTotal: 3,
+  BathroomsTotalInteger: 2,
+  LivingArea: 1900,
+  LotSizeAcres: 0.18,
+  YearBuilt: 1998,
+  PublicRemarks: "Synthetic demo listing. One of a street of similar homes, for trying comparables.",
+  ...showing,
+  ClosePrice: null,
+  CloseDate: null,
+  ...changes,
+});
+
+// The subject: on the market now.
+await story(agents[0], comparableStreet(1, { ListPrice: 615000 }), 12);
+
+// Recent sales nearby. [number, list price, beds, living area, entered, pending after, closed after, close price]
+const sales: [number, number, number, number, number, number, number, number][] = [
+  [3, 599000, 3, 1850, 150, 14, 44, 592000],
+  [5, 625000, 4, 2050, 130, 9, 40, 631000],
+  [7, 580000, 3, 1720, 110, 30, 62, 566000],
+  [9, 640000, 4, 2100, 95, 6, 36, 640000],
+  [11, 605000, 3, 1930, 70, 18, 49, 598000],
+];
+for (const [number, price, beds, area, entered, pendingAfter, closedAfter, closePrice] of sales)
+  await story(agents[number % agents.length], comparableStreet(number, { ListPrice: price, BedroomsTotal: beds, LivingArea: area }), entered, [
+    status(entered - pendingAfter, "Pending"),
+    closed(entered - closedAfter, closePrice),
+  ]);
+
+// One that fell out of contract and came back before selling (the count pauses while pending).
+await story(agents[2], comparableStreet(13, { ListPrice: 610000, LivingArea: 1880 }), 140, [
+  status(130, "Pending"),
+  status(116, "Active"),
+  status(106, "Pending"),
+  closed(70, 603000),
+]);
+// One sold too long ago to count as a recent comparable.
+await story(agents[3], comparableStreet(15, { ListPrice: 570000 }), 340, [status(320, "Pending"), closed(290, 565000)]);
+// One much larger home, outside the size range.
+await story(agents[4], comparableStreet(17, { ListPrice: 890000, BedroomsTotal: 5, LivingArea: 3400 }), 100, [
+  status(80, "Pending"),
+  closed(50, 880000),
+]);
+
+// ---- Relistings, to show how the cumulative count works ----
+const relist = (number: number, changes: Partial<ListingInput> = {}): ListingInput => ({
+  ...comparableStreet(number, { ListPrice: 540000, LivingArea: 1600 }),
+  StreetName: "Relist Rd",
+  City: "Cedar Hollow",
+  PostalCode: "98002",
+  ParcelNumber: `3000-${number}-01`,
+  Latitude: Number((47.3 + number * 0.0002).toFixed(6)),
+  Longitude: Number((-122.2 + number * 0.0002).toFixed(6)),
+  PublicRemarks: "Synthetic demo listing. Part of a relisting example.",
+  ...changes,
+});
+
+// Canceled after 60 days and relisted 10 days later by another brokerage: the count carries on.
+await story(agents[0], relist(10), 100, [status(40, "Canceled")]);
+await story(agents[3], relist(10, { ListPrice: 525000 }), 30);
+
+// Expired after 60 days and relisted 60 days later: the count starts again.
+await story(agents[1], relist(20), 180, [status(120, "Expired")]);
+await story(agents[1], relist(20, { ListPrice: 530000 }), 60);
+
+// Sold, then listed again by the new owner: a sale always resets the count.
+await story(agents[4], relist(30), 150, [status(130, "Pending"), closed(90, 538000)]);
+await story(agents[5], relist(30, { ListPrice: 579000 }), 20);
+
+console.log(`Seeded 3 offices, ${actors.length} members, ${listingCount} listings.`);
 console.log("Sign in with any <first>.<last>@osmls.example address and DEMO_PASSWORD from .env.");
 await pool.end();

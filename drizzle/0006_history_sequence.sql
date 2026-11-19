@@ -1,0 +1,1 @@
+ALTER TABLE "HistoryTransactional" ADD COLUMN "OsmlsSequence" bigserial NOT NULL;

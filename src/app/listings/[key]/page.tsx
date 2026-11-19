@@ -12,6 +12,8 @@ import {
 } from "@/lib/format";
 import { DOCUMENT_PERMISSION_LABELS, type DocumentPermission } from "@/lib/lookups";
 import { canEdit, canViewHistory, getHistory, getListing } from "@/lib/listings";
+import { getMarketTimeline } from "@/lib/market-research";
+import { getMarketTime } from "@/lib/market-time";
 import type { StandardStatus } from "@/lib/lookups";
 import { isTerminal } from "@/lib/rules/status";
 import { requireMember } from "@/lib/session";
@@ -38,6 +40,8 @@ export default async function ListingPage({
   const isStaff = current.OsmlsRole === "staff";
   const editable = canEdit(current, listing) && (isStaff || !isTerminal(listing.StandardStatus as StandardStatus));
   const history = canViewHistory(current) ? await getHistory(listing.ListingKey) : null;
+  const marketTime = (await getMarketTime([listing.ListingKey])).get(listing.ListingKey);
+  const timeline = await getMarketTimeline(listing.ListingKey);
 
   const facts: [string, string][] = [
     ["Property type", listing.PropertyType],
@@ -52,6 +56,8 @@ export default async function ListingPage({
         ? `${listing.Latitude}, ${listing.Longitude}`
         : "Not set",
     ],
+    ["County", listing.CountyOrParish ?? "—"],
+    ["Parcel number", listing.ParcelNumber ?? "—"],
     ["Listing contract date", formatDate(listing.ListingContractDate)],
     ["On market date", formatDate(listing.OnMarketDate)],
     ["Original list price", formatMoney(listing.OriginalListPrice)],
@@ -84,11 +90,16 @@ export default async function ListingPage({
             <StatusBadge status={listing.StandardStatus} />
           </div>
         </div>
-        {editable && (
-          <Link href={`/listings/${listing.ListingKey}/edit`} className="btn">
-            {isStaff ? "Correct listing" : "Edit listing"}
+        <div className="flex flex-wrap gap-3">
+          <Link href={`/listings/${listing.ListingKey}/comparables`} className="btn-secondary">
+            Find comparables
           </Link>
-        )}
+          {editable && (
+            <Link href={`/listings/${listing.ListingKey}/edit`} className="btn">
+              {isStaff ? "Correct listing" : "Edit listing"}
+            </Link>
+          )}
+        </div>
       </div>
 
       {photos.length > 0 ? (
@@ -128,6 +139,54 @@ export default async function ListingPage({
           {agent.MemberDirectPhone && <p className="text-sm">{agent.MemberDirectPhone}</p>}
         </section>
       </div>
+
+      <section className="card" aria-labelledby="market-heading" data-testid="market">
+        <h2 id="market-heading" className="text-base font-semibold">
+          Time on market
+        </h2>
+        <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-muted">Days on market</dt>
+            <dd className="text-sm font-medium" data-testid="dom">
+              {marketTime?.daysOnMarket ?? 0}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-muted">Cumulative days on market</dt>
+            <dd className="text-sm font-medium" data-testid="cdom">
+              {marketTime?.cumulativeDaysOnMarket ?? 0}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-muted">First on market</dt>
+            <dd className="text-sm font-medium">{formatDate(marketTime?.firstOnMarketDate)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-muted">Off market</dt>
+            <dd className="text-sm font-medium">{formatDate(marketTime?.offMarketDate)}</dd>
+          </div>
+        </dl>
+        {marketTime && marketTime.continues.length > 0 && (
+          <p className="mt-3 text-sm text-muted">
+            The cumulative figure includes earlier listings of this property: {marketTime.continues.join(", ")}.
+          </p>
+        )}
+        <p className="mt-3 text-xs text-muted">
+          Counted by this MLS&apos;s own rules. Figures from different MLSs are not comparable.
+        </p>
+        <h3 className="mt-4 text-sm font-semibold">Price and status timeline</h3>
+        <table className="mt-2 w-full border-collapse" data-testid="timeline">
+          <tbody>
+            {timeline.map((entry, i) => (
+              <tr key={i} className="border-b border-line last:border-0">
+                <td className="td w-32 whitespace-nowrap">{formatDate(entry.date)}</td>
+                <td className="td w-40">{entry.event}</td>
+                <td className="td">{entry.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
 
       {showingVisible && (
         <section className="card" aria-labelledby="showing-heading" data-testid="showing">

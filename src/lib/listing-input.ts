@@ -65,6 +65,8 @@ export const listingInputSchema = z
     StreetName: requiredText("Street name"),
     UnitNumber: optionalText(20),
     City: requiredText("City"),
+    CountyOrParish: optionalText(80),
+    ParcelNumber: optionalText(50),
     StateOrProvince: z.preprocess(
       (v) => (typeof v === "string" ? v.trim().toUpperCase() : v),
       z.string().regex(STATE_OR_PROVINCE_PATTERN, "Use the two-letter state code."),

@@ -124,14 +124,14 @@ test("searching an area from the first view keeps the default statuses", async (
   await signIn(page, "sam.whitfield@osmls.example");
   await mapReady(page, "search-map");
   await expect(page.getByLabel("Active", { exact: true })).toBeChecked();
-  await expect(page.getByLabel("Closed")).not.toBeChecked();
+  await expect(page.getByLabel("Closed", { exact: true })).not.toBeChecked();
 
   await page.getByRole("button", { name: "Search this area" }).click();
   await expect(page).toHaveURL(/bounds=/);
   await expect(page).toHaveURL(/status=Active/);
   await expect(page.getByLabel("Active", { exact: true })).toBeChecked();
   await expect(page.getByLabel("Coming Soon")).toBeChecked();
-  await expect(page.getByLabel("Closed")).not.toBeChecked();
+  await expect(page.getByLabel("Closed", { exact: true })).not.toBeChecked();
   await expect(page.getByRole("table")).not.toContainText("Closed");
 });
 

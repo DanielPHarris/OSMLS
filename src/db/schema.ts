@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   check,
   date,
@@ -99,6 +100,10 @@ export const property = pgTable(
     StateOrProvince: text().notNull(),
     PostalCode: text().notNull(),
     UnparsedAddress: text().notNull(),
+    // With the state, the jurisdiction that issued the parcel number.
+    CountyOrParish: text(),
+    // Unique only within its county and state. Used to recognise a relisting.
+    ParcelNumber: text(),
     // Where the pin sits on the map. Both are set, or neither.
     Latitude: numeric({ precision: 9, scale: 6, mode: "number" }),
     Longitude: numeric({ precision: 9, scale: 6, mode: "number" }),
@@ -154,6 +159,8 @@ export const property = pgTable(
       sql`(${t.Latitude} IS NULL) = (${t.Longitude} IS NULL)`,
     ),
     index("Property_location_idx").on(t.Latitude, t.Longitude),
+    index("Property_ParcelNumber_idx").on(t.ParcelNumber),
+    index("Property_CloseDate_idx").on(t.CloseDate),
     index("Property_StandardStatus_idx").on(t.StandardStatus),
     index("Property_City_idx").on(t.City),
     index("Property_PostalCode_idx").on(t.PostalCode),
@@ -220,6 +227,9 @@ export const historyTransactional = pgTable(
       .references(() => member.MemberKey),
     ChangedByMemberID: text().notNull(),
     ModificationTimestamp: timestamptz().notNull().defaultNow(),
+    // The order rows were written in. Settles the order of changes that share a
+    // timestamp, which the market-time calculation depends on.
+    OsmlsSequence: bigserial({ mode: "number" }).notNull(),
     // True when MLS staff, rather than the listing agent, made the change.
     OsmlsStaffCorrection: boolean().notNull().default(false),
     OsmlsCorrectionReason: text(),

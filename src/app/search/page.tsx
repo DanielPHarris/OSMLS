@@ -2,8 +2,8 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { SearchMap, type MapPin } from "@/components/search-map";
 import { StatusBadge } from "@/components/status-badge";
-import { formatMoney } from "@/lib/format";
-import { parseBounds, searchListings } from "@/lib/listings";
+import { formatDate, formatMoney } from "@/lib/format";
+import { SEARCH_SORTS, parseBounds, searchListings, type SearchSort } from "@/lib/listings";
 import { getMapConfig } from "@/lib/map-config";
 import { STANDARD_STATUSES, type StandardStatus } from "@/lib/lookups";
 import { requireMember } from "@/lib/session";
@@ -30,6 +30,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const mine = one(p.mine) === "1" && current.OsmlsRole === "agent";
 
   const bounds = parseBounds(one(p.bounds));
+  const sort = (one(p.sort) ?? "changed") as SearchSort;
 
   const { rows, truncated, withoutLocation } = await searchListings({
     bounds,
@@ -43,6 +44,11 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     minBaths: num(p.minBaths),
     statuses,
     listAgentKey: mine ? current.MemberKey : undefined,
+    closedFrom: one(p.closedFrom),
+    closedTo: one(p.closedTo),
+    minClosePrice: num(p.minClosePrice),
+    maxClosePrice: num(p.maxClosePrice),
+    sort,
   });
 
   const pins: MapPin[] = rows.flatMap(({ listing }) =>
@@ -94,6 +100,25 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             {text("minBaths", "Min baths", { inputMode: "numeric" })}
           </div>
         </div>
+        <div className="grid gap-4 sm:grid-cols-5">
+          {text("closedFrom", "Closed on or after", { type: "date" })}
+          {text("closedTo", "Closed on or before", { type: "date" })}
+          {text("minClosePrice", "Minimum close price", { inputMode: "numeric" })}
+          {text("maxClosePrice", "Maximum close price", { inputMode: "numeric" })}
+          <label className="label">
+            Sort by
+            <select name="sort" defaultValue={sort in SEARCH_SORTS ? sort : "changed"} className="field">
+              {Object.entries(SEARCH_SORTS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p className="-mt-2 text-xs text-muted">
+          Close dates and close prices match closed listings only. Tick Closed below to include them.
+        </p>
         <fieldset>
           <legend className="label">Status</legend>
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
@@ -146,12 +171,15 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
                   <th className="th">Address</th>
                   <th className="th">Price</th>
                   <th className="th">Beds / baths</th>
+                  <th className="th" title="Days on market / cumulative days on market">
+                    DOM / CDOM
+                  </th>
                   <th className="th">Status</th>
                   <th className="th">Listing agent</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ listing, agentName, officeName, firstPhotoKey }) => (
+                {rows.map(({ listing, agentName, officeName, firstPhotoKey, marketTime }) => (
                   <tr key={listing.ListingKey} className="border-b border-line last:border-0 hover:bg-paper">
                     <td className="td w-24">
                       {firstPhotoKey ? (
@@ -173,9 +201,19 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
                         <span className="block text-xs text-muted">Location unavailable</span>
                       )}
                     </td>
-                    <td className="td whitespace-nowrap font-medium">{formatMoney(listing.ListPrice)}</td>
+                    <td className="td whitespace-nowrap font-medium">
+                      {formatMoney(listing.ListPrice)}
+                      {listing.StandardStatus === "Closed" && (
+                        <span className="block text-xs font-normal text-muted">
+                          Closed {formatMoney(listing.ClosePrice)} on {formatDate(listing.CloseDate)}
+                        </span>
+                      )}
+                    </td>
                     <td className="td whitespace-nowrap">
                       {listing.BedroomsTotal} / {listing.BathroomsTotalInteger}
+                    </td>
+                    <td className="td whitespace-nowrap" data-testid="market-time">
+                      {marketTime.daysOnMarket} / {marketTime.cumulativeDaysOnMarket}
                     </td>
                     <td className="td">
                       <StatusBadge status={listing.StandardStatus} />
