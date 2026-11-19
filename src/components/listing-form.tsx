@@ -15,9 +15,10 @@ type Props = {
   isStaffCorrection: boolean;
   cancelHref: string;
   mapConfig: MapConfig;
+  showingChoices: { requirements: readonly string[]; contactTypes: readonly string[]; lockBoxTypes: readonly string[] };
 };
 
-export function ListingForm({ listingKey, initial, statusOptions, propertyTypes, isStaffCorrection, cancelHref, mapConfig }: Props) {
+export function ListingForm({ listingKey, initial, statusOptions, propertyTypes, isStaffCorrection, cancelHref, mapConfig, showingChoices }: Props) {
   const [state, action, pending] = useActionState<FormState, FormData>(saveListing.bind(null, listingKey), {});
   const value = (name: string) => state.values?.[name] ?? initial[name] ?? "";
   const error = (name: string) =>
@@ -56,6 +57,24 @@ export function ListingForm({ listingKey, initial, statusOptions, propertyTypes,
       {error(name)}
     </label>
   );
+
+  const choices = (name: string, label: string, options: readonly string[]) => {
+    const chosen = value(name).split("|");
+    return (
+      <fieldset className="sm:col-span-6">
+        <legend className="label">{label}</legend>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+          {options.map((o) => (
+            <label key={o} className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" name={name} value={o} defaultChecked={chosen.includes(o)} />
+              {o}
+            </label>
+          ))}
+        </div>
+        {error(name)}
+      </fieldset>
+    );
+  };
 
   return (
     // The key remounts the form after a failed save so fields show what was typed.
@@ -98,6 +117,34 @@ export function ListingForm({ listingKey, initial, statusOptions, propertyTypes,
           <textarea name="PublicRemarks" rows={4} defaultValue={value("PublicRemarks")} className="field" />
           {error("PublicRemarks")}
         </label>
+      </fieldset>
+
+      <fieldset className="card grid gap-4 sm:grid-cols-6">
+        <legend className="px-1 text-sm font-semibold">Showing instructions</legend>
+        <p className="text-sm text-muted sm:col-span-6">
+          Seen by other MLS members while the listing is on the market, and only by the listing office and MLS
+          staff once it is closed, canceled, or expired.{" "}
+          <strong className="text-amber-900">
+            Do not enter lockbox combinations or gate codes here. OSMLS does not store entry codes.
+          </strong>
+        </p>
+        <label className="label sm:col-span-6">
+          Showing instructions
+          <textarea
+            name="ShowingInstructions"
+            rows={3}
+            maxLength={4000}
+            defaultValue={value("ShowingInstructions")}
+            className="field"
+          />
+          {error("ShowingInstructions")}
+        </label>
+        {choices("ShowingRequirements", "Showing requirements", showingChoices.requirements)}
+        <div className="sm:col-span-3">{input("ShowingContactName", "Showing contact name", { maxLength: 40 })}</div>
+        <div className="sm:col-span-3">{input("ShowingContactPhone", "Showing contact phone", { maxLength: 16 })}</div>
+        {choices("ShowingContactType", "Showing contact is the", showingChoices.contactTypes)}
+        {choices("LockBoxType", "Lockbox type", showingChoices.lockBoxTypes)}
+        <div className="sm:col-span-6">{input("LockBoxLocation", "Lockbox location", { maxLength: 255 })}</div>
       </fieldset>
 
       <LocationPicker

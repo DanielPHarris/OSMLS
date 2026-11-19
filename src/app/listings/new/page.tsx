@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { ListingForm } from "@/components/listing-form";
-import { PROPERTY_TYPES } from "@/lib/lookups";
+import { LOCK_BOX_TYPES, PROPERTY_TYPES, SHOWING_CONTACT_TYPES, SHOWING_REQUIREMENTS } from "@/lib/lookups";
 import { getMapConfig } from "@/lib/map-config";
 import { INITIAL_STATUSES } from "@/lib/rules/status";
 import { requireMember } from "@/lib/session";
@@ -19,6 +19,7 @@ export default async function NewListingPage() {
         isStaffCorrection={false}
         cancelHref="/search"
         mapConfig={getMapConfig()}
+        showingChoices={{ requirements: SHOWING_REQUIREMENTS, contactTypes: SHOWING_CONTACT_TYPES, lockBoxTypes: LOCK_BOX_TYPES }}
       />
     </>
   );

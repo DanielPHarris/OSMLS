@@ -1,6 +1,6 @@
 /*
- * Loads synthetic demo data: two brokerages, six agents, two MLS staff, and
- * forty listings. Every person, office, and address here is invented.
+ * Loads synthetic demo data: two brokerages, six agents, two MLS staff, two
+ * suspended accounts, and forty listings. Every person, office, and address here is invented.
  * Does nothing if the database already has offices.
  */
 import { eq } from "drizzle-orm";
@@ -43,9 +43,12 @@ const people = [
   { first: "Chris", last: "Dubois", id: "AG2003", role: "agent", office: summit },
   { first: "Morgan", last: "Ellis", id: "ST0001", role: "staff", office: null },
   { first: "Taylor", last: "Brooks", id: "ST0002", role: "staff", office: null },
+  // Suspended accounts: they can sign in but are refused everything.
+  { first: "Riley", last: "Chen", id: "AG1099", role: "agent", office: harbor, status: "Inactive" },
+  { first: "Casey", last: "Morgan", id: "ST0099", role: "staff", office: null, status: "Inactive" },
 ] as const;
 
-const actors: Actor[] = [];
+const actors: (Actor & { MemberStatus: string })[] = [];
 for (const p of people) {
   const email = `${p.first}.${p.last}@osmls.example`.toLowerCase();
   const name = `${p.first} ${p.last}`;
@@ -62,12 +65,13 @@ for (const p of people) {
       MemberDirectPhone: "555-0199",
       OfficeKey: p.office?.OfficeKey ?? null,
       OsmlsRole: p.role,
+      MemberStatus: "status" in p ? p.status : "Active",
       OsmlsUserId: u.id,
     })
     .returning();
   actors.push(m);
 }
-const agents = actors.filter((a) => a.OsmlsRole === "agent");
+const agents = actors.filter((a) => a.OsmlsRole === "agent" && a.MemberStatus === "Active");
 
 // A small deterministic generator so every seed run produces the same listings.
 let state = 20261118;
@@ -118,6 +122,14 @@ for (let i = 0; i < 40; i++) {
     LotSizeAcres: Number((between(5, 300) / 100).toFixed(2)),
     YearBuilt: i % 9 === 0 ? null : between(1925, 2025),
     PublicRemarks: pick(remarks),
+    ShowingInstructions:
+      i % 9 === 0 ? null : "Synthetic demo instructions. Call the listing agent to arrange a time. Remove shoes.",
+    ShowingRequirements: i % 9 === 0 ? [] : ["Appointment Only", "Call Listing Agent"],
+    ShowingContactName: i % 9 === 0 ? null : "Listing agent",
+    ShowingContactPhone: i % 9 === 0 ? null : "555-0199",
+    ShowingContactType: i % 9 === 0 ? [] : ["Agent"],
+    LockBoxType: i % 9 === 0 ? [] : ["Supra"],
+    LockBoxLocation: i % 9 === 0 ? null : "Front door",
     ClosePrice: null,
     CloseDate: null,
   };

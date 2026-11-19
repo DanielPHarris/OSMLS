@@ -12,12 +12,13 @@ import {
   type Member,
   type Property,
 } from "../db/schema";
+import { canViewDocument, canViewShowing, type Viewer } from "./access";
 import { parseListingInput, type FieldErrors, type ListingInput } from "./listing-input";
 import type { StandardStatus } from "./lookups";
 import { MAX_PHOTO_BYTES, MAX_PHOTOS_PER_LISTING, MAX_SEARCH_RESULTS } from "./rules/local";
 import { INITIAL_STATUSES, canTransition, changeTypeForStatus, isTerminal } from "./rules/status";
 
-export type Actor = Pick<Member, "MemberKey" | "MemberMlsId" | "OsmlsRole" | "OfficeKey">;
+export type Actor = Pick<Member, "MemberKey" | "MemberMlsId" | "OsmlsRole" | "OfficeKey" | "MemberStatus">;
 
 /** A request that was understood but is not allowed or not valid. Safe to show to the user. */
 export class ListingError extends Error {
@@ -49,13 +50,35 @@ const TRACKED_FIELDS = [
   "LotSizeAcres",
   "YearBuilt",
   "PublicRemarks",
+  "ShowingInstructions",
+  "ShowingRequirements",
+  "ShowingContactName",
+  "ShowingContactPhone",
+  "ShowingContactType",
+  "LockBoxType",
+  "LockBoxLocation",
   "Latitude",
   "Longitude",
   "ClosePrice",
   "CloseDate",
 ] as const satisfies readonly (keyof ListingInput)[];
 
-const asText = (v: unknown): string | null => (v == null ? null : String(v));
+const asText = (v: unknown): string | null =>
+  Array.isArray(v) ? (v.length ? v.join(", ") : null) : v == null ? null : String(v);
+
+/** A copy of the listing with its showing details blanked. See canViewShowing in access.ts. */
+function withoutShowing(listing: Property): Property {
+  return {
+    ...listing,
+    ShowingInstructions: null,
+    ShowingRequirements: [],
+    ShowingContactName: null,
+    ShowingContactPhone: null,
+    ShowingContactType: [],
+    LockBoxType: [],
+    LockBoxLocation: null,
+  };
+}
 
 function unparsedAddress(v: ListingInput): string {
   const unit = v.UnitNumber ? ` #${v.UnitNumber}` : "";
@@ -75,7 +98,7 @@ export const canViewHistory = (actor: Actor) => actor.OsmlsRole === "staff";
  * details to record. Listing agents change their own open listings. MLS staff
  * may correct any listing but must say why.
  */
-function authorizeChange(actor: Actor, listing: Property, correctionReason?: string | null) {
+export function authorizeChange(actor: Actor, listing: Property, correctionReason?: string | null) {
   if (actor.OsmlsRole === "staff") {
     const reason = correctionReason?.trim();
     if (!reason)
@@ -93,7 +116,7 @@ function authorizeChange(actor: Actor, listing: Property, correctionReason?: str
   return { OsmlsStaffCorrection: false, OsmlsCorrectionReason: null };
 }
 
-async function lockListing(tx: Tx, listingKey: string): Promise<Property> {
+export async function lockListing(tx: Tx, listingKey: string): Promise<Property> {
   const [row] = await tx.select().from(property).where(eq(property.ListingKey, listingKey)).for("update");
   if (!row) throw new ListingError("Listing not found.");
   return row;
@@ -245,7 +268,7 @@ export async function addPhoto(
       const existing = await tx
         .select({ Order: media.Order })
         .from(media)
-        .where(eq(media.ResourceRecordKey, listingKey));
+        .where(and(eq(media.ResourceRecordKey, listingKey), eq(media.MediaCategory, "Photo")));
       if (existing.length >= MAX_PHOTOS_PER_LISTING)
         throw new ListingError(`A listing can have at most ${MAX_PHOTOS_PER_LISTING} photos.`);
       const order = Math.max(0, ...existing.map((m) => m.Order)) + 1;
@@ -275,9 +298,14 @@ export async function addPhoto(
 
 export async function removePhoto(actor: Actor, mediaKey: string, correctionReason?: string | null) {
   const removed = await db.transaction(async (tx) => {
-    const [photo] = await tx.select().from(media).where(eq(media.MediaKey, mediaKey));
+    const isThisPhoto = and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Photo"));
+    // An unlocked look, only to learn which listing to lock.
+    const [pointer] = await tx.select({ listingKey: media.ResourceRecordKey }).from(media).where(isThisPhoto);
+    if (!pointer) throw new ListingError("Photo not found.");
+    const listing = await lockListing(tx, pointer.listingKey);
+    // Read the photo once the lock is held, so an overlapping removal is seen.
+    const [photo] = await tx.select().from(media).where(isThisPhoto).for("update");
     if (!photo) throw new ListingError("Photo not found.");
-    const listing = await lockListing(tx, photo.ResourceRecordKey);
     const correction = authorizeChange(actor, listing, correctionReason);
     await tx.delete(media).where(eq(media.MediaKey, mediaKey));
     await tx.insert(historyTransactional).values({
@@ -362,7 +390,7 @@ export async function searchListings(filters: SearchFilters) {
       officeName: office.OfficeName,
       firstPhotoKey: sql<string | null>`(
         select m."MediaKey" from "Media" m
-        where m."ResourceRecordKey" = ${property.ListingKey}
+        where m."ResourceRecordKey" = ${property.ListingKey} and m."MediaCategory" = 'Photo'
         order by m."Order" limit 1)`,
     })
     .from(property)
@@ -379,13 +407,19 @@ export async function searchListings(filters: SearchFilters) {
     .where(and(fieldFilters, isNull(property.Latitude)));
 
   return {
-    rows: rows.slice(0, MAX_SEARCH_RESULTS),
+    // Search results never carry showing details, whoever is asking.
+    rows: rows.slice(0, MAX_SEARCH_RESULTS).map((row) => ({ ...row, listing: withoutShowing(row.listing) })),
     truncated: rows.length > MAX_SEARCH_RESULTS,
     withoutLocation,
   };
 }
 
-export async function getListing(listingKey: string) {
+/**
+ * A listing as one particular viewer may see it. Showing details and documents
+ * the viewer is not allowed to see are left out here, so no screen can pass them
+ * on by mistake.
+ */
+export async function getListing(listingKey: string, viewer: Viewer) {
   if (!/^[0-9a-f-]{36}$/i.test(listingKey)) return null;
   const [row] = await db
     .select({ listing: property, agent: member, office })
@@ -394,12 +428,21 @@ export async function getListing(listingKey: string) {
     .innerJoin(office, eq(office.OfficeKey, property.ListOfficeKey))
     .where(eq(property.ListingKey, listingKey));
   if (!row) return null;
-  const photos = await db
+  const allMedia = await db
     .select()
     .from(media)
     .where(eq(media.ResourceRecordKey, listingKey))
     .orderBy(asc(media.Order));
-  return { ...row, photos };
+  const showingVisible = canViewShowing(viewer, row.listing);
+  return {
+    ...row,
+    listing: showingVisible ? row.listing : withoutShowing(row.listing),
+    showingVisible,
+    photos: allMedia.filter((m) => m.MediaCategory === "Photo"),
+    documents: allMedia.filter(
+      (m) => m.MediaCategory === "Document" && canViewDocument(viewer, row.listing, m.Permission),
+    ),
+  };
 }
 
 export async function getHistory(listingKey: string) {
@@ -411,8 +454,12 @@ export async function getHistory(listingKey: string) {
     .orderBy(desc(historyTransactional.ModificationTimestamp), asc(historyTransactional.FieldName));
 }
 
+/** Photos only. A document's key is never served by the photo route. */
 export async function getPhoto(mediaKey: string) {
   if (!/^[0-9a-f-]{36}$/i.test(mediaKey)) return null;
-  const [row] = await db.select().from(media).where(eq(media.MediaKey, mediaKey));
+  const [row] = await db
+    .select()
+    .from(media)
+    .where(and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Photo")));
   return row ?? null;
 }

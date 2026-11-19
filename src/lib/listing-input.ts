@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { PROPERTY_TYPES, STANDARD_STATUSES } from "./lookups";
+import {
+  LOCK_BOX_TYPES,
+  PROPERTY_TYPES,
+  SHOWING_CONTACT_TYPES,
+  SHOWING_REQUIREMENTS,
+  STANDARD_STATUSES,
+} from "./lookups";
 import {
   EARLIEST_YEAR_BUILT,
   POSTAL_CODE_PATTERN,
@@ -18,6 +24,18 @@ const isoDate = (label: string) =>
     .regex(/^\d{4}-\d{2}-\d{2}$/, `${label} must be a date.`)
     .refine((s) => !Number.isNaN(Date.parse(s)), `${label} must be a real date.`);
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** Separates the chosen values of a multiple-choice field when it travels as one string. */
+export const MULTI_VALUE_SEPARATOR = "|";
+
+const multiChoice = (label: string, allowed: readonly string[]) =>
+  z.preprocess(
+    (v) => {
+      const list = Array.isArray(v) ? v : typeof v === "string" ? v.split(MULTI_VALUE_SEPARATOR) : [];
+      return [...new Set(list.map((x) => String(x).trim()).filter(Boolean))];
+    },
+    z.array(z.string().refine((x) => allowed.includes(x), `${label} has a choice that is not allowed.`)),
+  );
 
 // Stored to six decimal places, which is about ten centimetres.
 const coordinate = (label: string, limit: number) =>
@@ -83,6 +101,13 @@ export const listingInputSchema = z
         .nullable(),
     ),
     PublicRemarks: optionalText(4000),
+    ShowingInstructions: optionalText(4000),
+    ShowingRequirements: multiChoice("Showing requirements", SHOWING_REQUIREMENTS),
+    ShowingContactName: optionalText(40),
+    ShowingContactPhone: optionalText(16),
+    ShowingContactType: multiChoice("Showing contact type", SHOWING_CONTACT_TYPES),
+    LockBoxType: multiChoice("Lockbox type", LOCK_BOX_TYPES),
+    LockBoxLocation: optionalText(255),
     Latitude: coordinate("Latitude", 90),
     Longitude: coordinate("Longitude", 180),
     ClosePrice: z.preprocess(

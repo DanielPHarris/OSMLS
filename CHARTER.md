@@ -30,6 +30,12 @@ production-ready.**
   tests and 3 browser tests, which use a blank local map style. The default map
   service was checked by hand in a production build at desktop and phone widths,
   in Chromium only.
+- Documents and showing instructions (roadmap item 1 after map search) are
+  implemented, with access rules for each. Tested by unit tests of every
+  combination of viewer and permission or status, database tests, and a browser
+  test that checks what each kind of viewer is actually sent, including by direct
+  request. Uploaded files are not scanned for malware, and keeping entry codes out
+  of the system is a usage restriction, not a guarantee.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -111,7 +117,7 @@ In scope:
 Out of 0.1, planned for later releases (see section 10):
 
 - Map search (since added; see section 10).
-- Documents and showing instructions.
+- Documents and showing instructions (since added; see section 10).
 - Sold-record research, DOM/CDOM, comparables.
 - Saved searches, collections, email sharing, reports, alerts.
 - Administration screens and access suspension.
@@ -223,16 +229,20 @@ Done:
 - Map search within the visible map area (2026-11-18). Drawing shapes, radius
   search, and automatic geocoding are not included.
 
+- Listing documents and showing instructions, with access controls (2026-11-18).
+  Not included: malware scanning, version retention, a download log, entry codes,
+  and sharing outside the membership.
+
 Next, in this order unless contributors and the maintainer agree otherwise:
 
-1. Documents and showing instructions.
-2. Sold-record research, DOM/CDOM, comparables.
-3. Saved searches, collections, email sharing, reports, alerts.
-4. Administration screens and access suspension.
-5. Compliance flags.
-6. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
-   tool.
-7. Production operations: monitoring, backups, recovery.
+1. Sold-record research, DOM/CDOM, comparables.
+2. Saved searches, collections, email sharing, reports, alerts.
+3. Administration screens and access suspension. Finer-grained staff permissions
+   belong here.
+4. Compliance flags.
+5. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
+   tool. Any export must apply the document and showing access rules.
+6. Production operations: monitoring, backups, recovery.
 
 Fair-housing considerations (section 8) are a design requirement and are not yet
 implemented in any feature.
