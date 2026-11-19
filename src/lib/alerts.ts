@@ -91,21 +91,30 @@ export function pauseNotice(paused: string | null): string | null {
   return null;
 }
 
-export type AlertOutcome = "sent" | "nothing-new" | "refused" | "uncertain" | "paused" | "changed";
+export type AlertOutcome = "sent" | "nothing-new" | "refused" | "uncertain" | "paused" | "changed" | "suspended";
 type Send = (mail: Mail) => Promise<void>;
 
 /** One alert, from reading to recording the result. */
-async function sendOne(key: string, owner: Member, send: Send, now: Date): Promise<AlertOutcome> {
-  // One snapshot: the alert's state, the boundary, and what has activity up to it.
+async function sendOne(key: string, send: Send, now: Date): Promise<AlertOutcome> {
+  // One snapshot: the alert's state, its owner as they are now, the boundary, and
+  // what has activity up to it. The owner is read here, not when the run began:
+  // an account suspended while earlier alerts were going out is sent nothing.
   const reading = await db.transaction(async (tx) => {
-    const [row] = await tx.select().from(savedSearch).where(eq(savedSearch.SavedSearchKey, key));
-    if (!row?.OsmlsAlertFrequency || row.OsmlsAlertPaused) return null;
+    const [found] = await tx
+      .select({ row: savedSearch, owner: member })
+      .from(savedSearch)
+      .innerJoin(member, eq(member.MemberKey, savedSearch.MemberKey))
+      .where(eq(savedSearch.SavedSearchKey, key));
+    if (!found?.row.OsmlsAlertFrequency || found.row.OsmlsAlertPaused) return null;
+    const { row, owner } = found;
+    if (owner.MemberStatus !== "Active") return "suspended" as const;
     const through = await latestSequence(tx);
     const { rows, more } = await listingsWithActivity(tx, owner, row, row.OsmlsAlertSentThrough, through, MAX_ACTIVITY_LISTINGS);
-    return { row, through, listings: rows.length, more };
+    return { row, owner, through, listings: rows.length, more };
   }, snapshot);
   if (!reading) return "changed";
-  const { row, through } = reading;
+  if (reading === "suspended") return reading;
+  const { row, owner, through } = reading;
   // Every write below applies only if the member has changed nothing since the reading.
   const unchanged = and(eq(savedSearch.SavedSearchKey, key), eq(savedSearch.OsmlsAlertGeneration, row.OsmlsAlertGeneration));
   const write = async (values: Values) =>
@@ -178,7 +187,7 @@ export async function sendDueAlerts(
     if (!held.rows[0]?.held) return { busy: true, outcomes: {} };
     const period = sql`case ${savedSearch.OsmlsAlertFrequency} when 'weekly' then interval '7 days' else interval '1 day' end`;
     const due = await db
-      .select({ key: savedSearch.SavedSearchKey, owner: member })
+      .select({ key: savedSearch.SavedSearchKey })
       .from(savedSearch)
       .innerJoin(member, eq(member.MemberKey, savedSearch.MemberKey))
       .where(
@@ -192,10 +201,10 @@ export async function sendDueAlerts(
       )
       .orderBy(savedSearch.OriginalEntryTimestamp);
     const outcomes: Partial<Record<AlertOutcome | "error", number>> = {};
-    for (const { key, owner } of due) {
+    for (const { key } of due) {
       let outcome: AlertOutcome | "error";
       try {
-        outcome = await sendOne(key, owner, send, now);
+        outcome = await sendOne(key, send, now);
       } catch (err) {
         // One alert's trouble does not stop the others. Whatever it had started stays on record.
         console.error(`Alert for saved search ${key} failed:`, err);

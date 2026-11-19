@@ -401,6 +401,45 @@ describe("a recipient's address", () => {
     expect(await getSharedPage(live)).not.toBeNull();
   });
 
+  it("keeps the email count and the stop link when a shared collection is deleted, and deletes the address", async () => {
+    await db.delete(share).where(eq(share.MemberKey, other.MemberKey));
+    const listing = await make({}, other);
+    const client = address("deleted-collection");
+    const sent = async () =>
+      (await db.select({ n: sql<number>`count(*)::int` }).from(share).where(sql`${share.MemberKey} = ${other.MemberKey} and ${share.OsmlsSentTimestamp} is not null`))[0].n;
+    const key = await collect([listing], other);
+    const token = await link({ collection: key }, other, { email: client });
+    expect(await sent()).toBe(1);
+    await deleteCollection(other, key);
+
+    // Access has ended and the address is gone, but the email still counts and can still be stopped.
+    expect(await getSharedPage(token)).toBeNull();
+    expect(await sent()).toBe(1);
+    expect(await rowFor(token)).toMatchObject({ OsmlsRecipientEmail: null, CollectionKey: null });
+    expect((await rowFor(token)).OsmlsRevokedTimestamp).not.toBeNull();
+    expect(await canStopEmail(token)).toBe(true);
+    expect(await stopEmail(token)).toBe(true);
+    await expect(createShare(other, { listing: listing.ListingKey }, { email: client })).rejects.toThrow("That address has asked not to receive email");
+
+    // Sharing and deleting collections over and over does not get round the daily limit.
+    await db.update(share).set({ OsmlsSentTimestamp: null }).where(eq(share.MemberKey, other.MemberKey));
+    for (let i = 0; i < MAX_SHARE_EMAILS_PER_DAY; i++) {
+      const again = await collect([listing], other);
+      await db.insert(share).values({
+        MemberKey: other.MemberKey, OsmlsTokenHash: `deleted-${run}-${i}`, CollectionKey: again,
+        ExpirationTimestamp: new Date(Date.now() + 60_000), OsmlsSentTimestamp: new Date(), OsmlsRecipientHash: "x",
+      });
+      await deleteCollection(other, again);
+    }
+    await expect(createShare(other, { listing: listing.ListingKey }, { email: address("over-limit") })).rejects.toThrow(
+      `You have emailed ${MAX_SHARE_EMAILS_PER_DAY} links in the last day`,
+    );
+    // The ended links do not count as working ones.
+    expect(await listShares(other, { listing: listing.ListingKey })).toEqual([]);
+    await expect(createShare(other, { listing: listing.ListingKey }, {})).resolves.toBeTruthy();
+    await db.delete(share).where(eq(share.MemberKey, other.MemberKey));
+  });
+
   it("makes no link when the email cannot be sent", async () => {
     const listing = await make();
     const target = { listing: listing.ListingKey };

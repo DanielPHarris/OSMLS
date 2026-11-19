@@ -1,5 +1,5 @@
 {
-  "id": "2f4100f5-b2a7-4a0f-816f-d11791277859",
+  "id": "a797294b-2b28-4e53-9860-208287cbef65",
   "prevId": "c6a968a2-3fde-469f-992c-760095b18580",
   "version": "7",
   "dialect": "postgresql",
@@ -1684,7 +1684,7 @@
           "columnsTo": [
             "CollectionKey"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -1702,7 +1702,7 @@
       "checkConstraints": {
         "OsmlsShare_one_target": {
           "name": "OsmlsShare_one_target",
-          "value": "(\"OsmlsShare\".\"ListingKey\" IS NULL) <> (\"OsmlsShare\".\"CollectionKey\" IS NULL)"
+          "value": "num_nonnulls(\"OsmlsShare\".\"ListingKey\", \"OsmlsShare\".\"CollectionKey\") <= 1"
         }
       },
       "isRLSEnabled": false

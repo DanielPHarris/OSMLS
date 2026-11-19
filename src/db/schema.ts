@@ -355,9 +355,12 @@ export const share = pgTable(
       .notNull()
       .references(() => member.MemberKey),
     OsmlsTokenHash: text().notNull().unique(),
-    // Exactly one of these: the listing or the collection the link shows.
+    // One of these: the listing or the collection the link shows. Neither, once
+    // a shared collection has been deleted: the link is over, but its record is
+    // kept for a while so that the email still counts towards the daily limit
+    // and its recipient can still ask for no more email.
     ListingKey: uuid().references(() => property.ListingKey),
-    CollectionKey: uuid().references(() => collection.CollectionKey, { onDelete: "cascade" }),
+    CollectionKey: uuid().references(() => collection.CollectionKey, { onDelete: "set null" }),
     ExpirationTimestamp: timestamptz().notNull(),
     OsmlsRevokedTimestamp: timestamptz(),
     // Set only when the link was sent by email. The address is deleted when the
@@ -369,7 +372,7 @@ export const share = pgTable(
     OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
   },
   (t) => [
-    check("OsmlsShare_one_target", sql`(${t.ListingKey} IS NULL) <> (${t.CollectionKey} IS NULL)`),
+    check("OsmlsShare_one_target", sql`num_nonnulls(${t.ListingKey}, ${t.CollectionKey}) <= 1`),
     index("OsmlsShare_member_idx").on(t.MemberKey),
     index("OsmlsShare_recipient_idx").on(t.OsmlsRecipientHash),
   ],

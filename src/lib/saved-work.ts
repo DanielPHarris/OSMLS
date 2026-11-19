@@ -7,6 +7,7 @@ import {
   office,
   property,
   savedSearch,
+  share,
   type Collection,
   type SavedSearch,
 } from "../db/schema";
@@ -326,6 +327,12 @@ export async function deleteCollection(viewer: Viewer, key: unknown): Promise<vo
   const owner = active(viewer);
   await db.transaction(async (tx) => {
     await lockCollection(tx, owner, key);
+    // Links to the collection end here, and their recipients' addresses are
+    // deleted. The records stay (see OsmlsShare in src/db/schema.ts).
+    await tx
+      .update(share)
+      .set({ OsmlsRevokedTimestamp: sql`coalesce(${share.OsmlsRevokedTimestamp}, now())`, OsmlsRecipientEmail: null })
+      .where(eq(share.CollectionKey, key as string));
     await tx.delete(collection).where(eq(collection.CollectionKey, key as string));
   });
 }

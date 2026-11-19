@@ -27,7 +27,7 @@ import { getCollection } from "./saved-work";
  * The link's secret is the only credential. It is made here, handed back once,
  * and kept only as a hash. A link works while it is unexpired, unrevoked, and
  * its owner's account is active; anything else answers exactly like a link that
- * never existed.
+ * never existed. Deleting a shared collection ends its links.
  *
  * What a link shows is read fresh each time and built only by toClientListing
  * (src/lib/rules/client-copy.ts). A link to a collection shows what is in the
@@ -221,6 +221,8 @@ async function resolve(token: string) {
       and(
         eq(share.OsmlsTokenHash, hashToken(token)),
         working,
+        // A link whose collection was deleted points at nothing, however it came to.
+        sql`num_nonnulls(${share.ListingKey}, ${share.CollectionKey}) = 1`,
         // A suspended member's links stop with their account.
         eq(member.MemberStatus, "Active"),
       ),

@@ -434,13 +434,17 @@ on a saved search emailed to themself on a schedule.
 - **How the block is kept.** As a keyed hash of the address, not the address. A
   member who enters a blocked address is told it cannot be emailed.
 - **Records.** A link's record, with the keyed hash of its recipient, is deleted 30
-  days after the link ended. After that its stop link no longer works.
+  days after the link ended. After that its stop link no longer works. Deleting a
+  shared collection ends its links and deletes their addresses but keeps these
+  records for that time, so the emails still count towards the daily limit and
+  their stop links still work.
 
 **Scheduled alerts**
 
 - **To the member only.** A saved search's owner can have its activity emailed to
   their account address, daily or weekly. It is off until switched on. Nothing is
-  emailed to clients on a schedule.
+  emailed to clients on a schedule. A suspended member is sent nothing; that is
+  checked again for each alert as it is sent, not once for the run.
 - **What the email says.** How many listings have activity, and a link to the
   activity page, which requires sign-in. No listing data.
 - **Run by a command.** `pnpm alerts:send` sends what is due and deletes expired

@@ -288,6 +288,34 @@ describe("runs and changes that overlap", () => {
     expect(mail.delivered).toHaveLength(1);
   });
 
+  it("sends nothing to a member suspended while an earlier alert in the same run was being sent", async () => {
+    const first = await watching("QueuedFirst");
+    const second = await watching("QueuedSecond");
+    await reprice(first.listing, 480000);
+    await reprice(second.listing, 480000);
+    const before = await state(second.key);
+    const mail = inbox();
+    const suspendDuringFirst = async (m: Mail) => {
+      await mail.send(m);
+      await db.update(member).set({ MemberStatus: "Inactive" }).where(eq(member.MemberKey, owner.MemberKey));
+    };
+    try {
+      expect((await sendDueAlerts({ send: suspendDuringFirst, now: later() })).outcomes).toEqual({ sent: 1, suspended: 1 });
+      // The queued alert was not sent, and its checkpoint waits for the member.
+      expect(mail.delivered.map((m) => m.subject)).toEqual([`New activity for your saved search "Alert ${first.city}"`]);
+      expect(await state(second.key)).toMatchObject({
+        OsmlsAlertSentThrough: before.OsmlsAlertSentThrough,
+        OsmlsAlertLastSentAt: before.OsmlsAlertLastSentAt,
+        OsmlsAlertAttempts: 0,
+      });
+    } finally {
+      await db.update(member).set({ MemberStatus: "Active" }).where(eq(member.MemberKey, owner.MemberKey));
+    }
+    // Reinstated, they are sent it.
+    expect((await sendDueAlerts({ send: mail.send, now: later() })).outcomes).toEqual({ sent: 1 });
+    expect(mail.delivered).toHaveLength(2);
+  });
+
   it("does not let a send that finishes late write over a criteria change made meanwhile", async () => {
     const { listing, key, city } = await watching("Meanwhile");
     await reprice(listing, 480000);
