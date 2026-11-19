@@ -42,15 +42,19 @@ production-ready.**
   recalculates past figures. Every worked example from the design is a test, each
   setting has a test showing it changes the result, and a browser test covers the
   screens against seeded data. Comparables are not a valuation.
-- Saved work, sharing, and alerts is under way: slices 1 and 2 of 4 are
+- Saved work, sharing, and alerts is under way: slices 1, 2 and 3 of 4 are
   implemented. Saved searches and collections (slice 1) are private to their
   creator and grant no access; ownership is tested for every operation and every
   kind of viewer, and overlapping requests are tested. Printable reports (slice 2)
   come as an agent copy and a client copy. A client copy is built from one explicit
   list of permitted fields, and tests read the whole response to confirm nothing
-  else is sent. Print layout was checked in Chromium only. In-app activity, and
-  email sharing with alerts (slices 3 and 4), are not built. Scheduled email alerts
-  remain outstanding until slice 4.
+  else is sent. Print layout was checked in Chromium only. Saved-search activity
+  (slice 3) shows new listings, status changes and list price changes since a
+  checkpoint the member moves only by marking activity as seen. A test commits a
+  change late and confirms it is not skipped. To make that safe, changes to
+  listings are committed one at a time; how much that limits a busy MLS has not
+  been measured. Email sharing with scheduled alerts (slice 4) is not built, so
+  the phase is not complete.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -271,7 +275,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | --- | --- | --- |
    | 1 | Saved searches and collections, private to each member | Done 2026-11-19 (issue #12) |
    | 2 | Printable reports, in an agent copy and a client copy | Done 2026-11-19 (issue #14) |
-   | 3 | In-app activity: what is new and changed for each saved search | Not started |
+   | 3 | In-app activity: what is new and changed for each saved search | Done 2026-11-19 (issue #16) |
    | 4 | Email sharing with client-safe share pages, and scheduled email alerts | Not started |
 
    Three rules hold across the phase:
@@ -297,7 +301,8 @@ Next, in this order unless contributors and the maintainer agree otherwise:
 3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
-5. Production operations: monitoring, backups, recovery.
+5. Production operations: monitoring, backups, recovery. Measuring what committing
+   listing changes one at a time costs under load belongs here.
 
 Fair-housing considerations (section 8) are a design requirement and are not yet
 implemented in any feature.

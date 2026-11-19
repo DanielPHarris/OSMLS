@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -229,8 +230,10 @@ export const historyTransactional = pgTable(
       .references(() => member.MemberKey),
     ChangedByMemberID: text().notNull(),
     ModificationTimestamp: timestamptz().notNull().defaultNow(),
-    // The order rows were written in. Settles the order of changes that share a
-    // timestamp, which the market-time calculation depends on.
+    // The order rows were committed in: a trigger hands the numbers out one
+    // transaction at a time (migration 0008). Settles the order of changes that
+    // share a timestamp, which the market-time calculation depends on, and lets
+    // "everything up to number N" be a safe checkpoint for saved-search activity.
     OsmlsSequence: bigserial({ mode: "number" }).notNull(),
     // True when MLS staff, rather than the listing agent, made the change.
     OsmlsStaffCorrection: boolean().notNull().default(false),
@@ -242,6 +245,7 @@ export const historyTransactional = pgTable(
       sql`NOT ${t.OsmlsStaffCorrection} OR length(trim(${t.OsmlsCorrectionReason})) > 0`,
     ),
     index("HistoryTransactional_record_idx").on(t.ResourceRecordKey, t.ModificationTimestamp),
+    index("HistoryTransactional_sequence_idx").on(t.OsmlsSequence),
   ],
 );
 
@@ -265,6 +269,12 @@ export const savedSearch = pgTable(
     // The criteria, as src/lib/search-criteria.ts defines them.
     OsmlsCriteria: jsonb().notNull(),
     SearchQueryHumanReadable: text().notNull(),
+    // The activity checkpoint: history up to and including this sequence number
+    // is behind the member. Set when the search is saved, when its criteria
+    // change, and when the member marks activity as seen. See src/lib/activity.ts.
+    OsmlsActivitySeenThrough: bigint({ mode: "number" }).notNull().default(0),
+    // When that checkpoint was last set.
+    OsmlsActivitySeenAt: timestamptz().notNull().defaultNow(),
     OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
     ModificationTimestamp: timestamptz().notNull().defaultNow(),
   },

@@ -15,6 +15,7 @@ import {
   renameSavedSearch,
   updateSavedSearchCriteria,
 } from "@/lib/saved-work";
+import { markActivitySeen } from "@/lib/activity";
 import { criteriaFromParams, criteriaToParams } from "@/lib/search-criteria";
 import { getCurrentMember } from "@/lib/session";
 
@@ -94,6 +95,21 @@ export async function deleteSavedSearchAction(key: string): Promise<FormState> {
   }
   revalidatePath("/", "layout");
   return { ok: true, message: "Deleted." };
+}
+
+/**
+ * Marks a saved search's activity as seen, up to the point the page that offered
+ * the button was built from. This is the only thing that does.
+ */
+export async function markActivitySeenAction(key: string, through: number): Promise<FormState> {
+  const current = await viewer();
+  try {
+    await markActivitySeen(current, key, through);
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Marked as seen." };
 }
 
 export async function createCollectionAction(_previous: FormState, formData: FormData): Promise<FormState> {
