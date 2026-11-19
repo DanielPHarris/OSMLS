@@ -36,6 +36,12 @@ production-ready.**
   test that checks what each kind of viewer is actually sent, including by direct
   request. Uploaded files are not scanned for malware, and keeping entry codes out
   of the system is a usage restriction, not a guarantee.
+- Market research is implemented: sold search, days on market and cumulative days
+  on market, a member timeline, and comparables. The market-time rules are six
+  settings with defaults, not a standard; changing one takes a redeployment and
+  recalculates past figures. Every worked example from the design is a test, each
+  setting has a test showing it changes the result, and a browser test covers the
+  screens against seeded data. Comparables are not a valuation.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -118,7 +124,7 @@ Out of 0.1, planned for later releases (see section 10):
 
 - Map search (since added; see section 10).
 - Documents and showing instructions (since added; see section 10).
-- Sold-record research, DOM/CDOM, comparables.
+- Sold-record research, DOM/CDOM, comparables (since added; see section 10).
 - Saved searches, collections, email sharing, reports, alerts.
 - Administration screens and access suspension.
 - Compliance flags.
@@ -241,16 +247,20 @@ Done:
   Not included: malware scanning, version retention, a download log, entry codes,
   and sharing outside the membership.
 
+- Market research: sold search, days on market, and comparables (2026-11-19). Not
+  included: any estimate of value, CMA reports, market statistics, non-MLS sales
+  data, policies that take effect from a date, and a tool to link or unlink
+  relistings by hand.
+
 Next, in this order unless contributors and the maintainer agree otherwise:
 
-1. Sold-record research, DOM/CDOM, comparables.
-2. Saved searches, collections, email sharing, reports, alerts.
-3. Administration screens and access suspension. Finer-grained staff permissions
-   belong here.
-4. Compliance flags.
-5. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
+1. Saved searches, collections, email sharing, reports, alerts.
+2. Administration screens and access suspension. Finer-grained staff permissions
+   belong here, as would changing market-time settings without a redeployment.
+3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
+4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
-6. Production operations: monitoring, backups, recovery.
+5. Production operations: monitoring, backups, recovery.
 
 Fair-housing considerations (section 8) are a design requirement and are not yet
 implemented in any feature.

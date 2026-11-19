@@ -103,6 +103,15 @@ export function ListingForm({ listingKey, initial, statusOptions, propertyTypes,
         <div className="sm:col-span-3">{input("City", "City", { required: true })}</div>
         <div className="sm:col-span-1">{input("StateOrProvince", "State", { required: true, maxLength: 2 })}</div>
         <div className="sm:col-span-2">{input("PostalCode", "ZIP code", { required: true })}</div>
+        <div className="sm:col-span-3">{input("CountyOrParish", "County", { maxLength: 80 })}</div>
+        <div className="sm:col-span-3">
+          {input(
+            "ParcelNumber",
+            "Parcel number",
+            { maxLength: 50 },
+            "With the county, this is how a relisting of the same property is recognised.",
+          )}
+        </div>
       </fieldset>
 
       <fieldset className="card grid gap-4 sm:grid-cols-5">

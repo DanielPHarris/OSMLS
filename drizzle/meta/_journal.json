@@ -36,6 +36,20 @@
       "when": 1795073035302,
       "tag": "0004_document_name_not_null",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795076080364,
+      "tag": "0005_market_research",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795076740243,
+      "tag": "0006_history_sequence",
+      "breakpoints": true
     }
   ]
 }

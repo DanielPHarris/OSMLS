@@ -170,10 +170,78 @@ Showing details never appear in search results.
 - Change history, which describes documents by name, is visible to MLS staff only.
 - There is no export. Any added later must use the same access rules.
 
+### Added since 0.1: market research
+
+Sold search, days on market, and comparables.
+
+**Days on market are a policy, not a fact.** The RESO Data Dictionary defines both
+days on market (DOM) and cumulative days on market (CDOM) only as "defined by the
+MLS business rules", so figures from different MLSs are not comparable. OSMLS does
+not pick one policy for everyone. It ships defaults, each a named setting in
+[src/lib/rules/market-time.ts](src/lib/rules/market-time.ts):
+
+| Setting | What it decides | Default |
+| --- | --- | --- |
+| Statuses that accumulate days | The one list of statuses in which a listing gains days. In every other status the count is paused. | Active, Active Under Contract |
+| Relisting gap | How long a property may be off the market and still have a new listing continue the old count. | 30 days |
+| Brokerage change resets the count | Whether a relisting by a different brokerage starts from zero. Brokerages are compared, not offices. | No |
+| Address fallback | Whether listings may be matched by address when a parcel match is not possible. | On |
+| Gap endpoint | Whether the gap ends when the new listing was entered, or when it first went on the market. | Entered |
+| MLS time zone | The time zone whose calendar dates are counted. | Pacific time |
+
+- **These are OSMLS's defaults, not a standard.** An MLS adopting OSMLS should set
+  them to match its own rules.
+- **Changing a setting takes a developer.** It means editing that file and
+  redeploying. There is no screen for it.
+- **Changing a setting recalculates the past.** Nothing is stored: the figures are
+  worked out from each listing's status history whenever they are shown, so a new
+  value changes them for old listings too. A policy cannot be applied from a date.
+
+How the count works with the defaults:
+
+- Days are calendar dates in the MLS time zone. A stretch on the market counts the
+  difference between the date it started and the date it ended; time spent Pending,
+  on Hold, or Withdrawn in between is not counted.
+- CDOM adds the DOM of the earlier listings a listing continues. The most recently
+  entered earlier listing of the same property is found first, and only then
+  tested: it must have ended Canceled, Expired, or Withdrawn, and the new listing
+  must have been entered fewer than 30 days after it ended. If it fails, the chain
+  stops there. **A sale always breaks the chain.**
+- Two listings are the same property if their parcel number, county, and state all
+  match, or, when either lacks a parcel number or county, if their street number,
+  street name, city, state, and ZIP code match exactly. Unit numbers must agree
+  either way. A parcel number alone never matches, because it is only unique
+  within the county that issued it.
+
+**Sold search.** Search by close date and close price, and sort by price, close
+date, or days on market. Results show DOM and CDOM.
+
+**Timeline.** Each listing shows members its status and price changes with their
+dates. It names no one and says nothing about staff corrections, documents, or
+showing instructions; full change history remains for MLS staff.
+
+**Comparables.** From a listing, "Find comparables" lists other listings that are,
+by default, closed within 180 days, of the same property type, within 1 mile,
+within 20% of its living area, and within 1 bedroom. Each criterion can be changed.
+A listing with no map location is compared within its ZIP code instead. The page
+shows the median close price, price per square foot, and days on market when there
+are at least three sales. **These describe those sales. They are not a valuation,**
+and no adjustments are made between properties.
+
+**Limits you should know about**
+
+- Matching by address is fragile: "12 Oak St" and "12 Oak Street" do not match.
+- Matching depends on what was typed. A wrong parcel number, county, or unit can
+  link unrelated listings or miss a real relisting, and staff can correct that
+  only by correcting those fields. There is no tool to link or unlink by hand.
+- If a new listing is entered before the earlier one has ended, their days can
+  overlap and be counted in both.
+- Sorting by days on market works on the listing's own DOM, not CDOM.
+- Comparables use distance in a straight line between map pins.
+
 ### Not yet built
 
-Sharing with clients or the public, sold-record research and comparables,
-days-on-market calculations, saved searches, alerts, email sharing, reports,
+Sharing with clients or the public, saved searches, alerts, email sharing, reports,
 administration screens, compliance flags, imports and exports, a RESO Web API
 endpoint, fair-housing checks on remarks, password reset, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
@@ -216,7 +284,12 @@ The secrets in `docker-compose.yml` and `.env.example` are for local demos only.
    save without a reason.
 
 The search opens showing Active and Coming Soon listings. Clear every status box to
-search all 40.
+search every status.
+
+To try market research: search for "Comparable Ct" with Closed ticked to see recent
+sales, open "1 Comparable Ct" and choose **Find comparables**. Listings on
+"Relist Rd" show how the cumulative count carries across a relisting, and when it
+does not.
 
 ## Develop
 
@@ -236,7 +309,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, and access control in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, and market research in a real browser
 pnpm lint && pnpm typecheck
 ```
 

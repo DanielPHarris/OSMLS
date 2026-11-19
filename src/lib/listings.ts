@@ -16,6 +16,8 @@ import { canViewDocument, canViewShowing, type Viewer } from "./access";
 import { parseListingInput, type FieldErrors, type ListingInput } from "./listing-input";
 import type { StandardStatus } from "./lookups";
 import { MAX_PHOTO_BYTES, MAX_PHOTOS_PER_LISTING, MAX_SEARCH_RESULTS } from "./rules/local";
+import { getMarketTime, marketFactsSql, type MarketTime } from "./market-time";
+import { MARKET_TIME_SETTINGS } from "./rules/market-time";
 import { INITIAL_STATUSES, canTransition, changeTypeForStatus, isTerminal } from "./rules/status";
 
 export type Actor = Pick<Member, "MemberKey" | "MemberMlsId" | "OsmlsRole" | "OfficeKey" | "MemberStatus">;
@@ -44,6 +46,8 @@ const TRACKED_FIELDS = [
   "City",
   "StateOrProvince",
   "PostalCode",
+  "CountyOrParish",
+  "ParcelNumber",
   "BedroomsTotal",
   "BathroomsTotalInteger",
   "LivingArea",
@@ -67,7 +71,7 @@ const asText = (v: unknown): string | null =>
   Array.isArray(v) ? (v.length ? v.join(", ") : null) : v == null ? null : String(v);
 
 /** A copy of the listing with its showing details blanked. See canViewShowing in access.ts. */
-function withoutShowing(listing: Property): Property {
+export function withoutShowing(listing: Property): Property {
   return {
     ...listing,
     ShowingInstructions: null,
@@ -85,7 +89,17 @@ function unparsedAddress(v: ListingInput): string {
   return `${v.StreetNumber} ${v.StreetName}${unit}, ${v.City}, ${v.StateOrProvince} ${v.PostalCode}`;
 }
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+/** The calendar date of a moment in the MLS's time zone, as YYYY-MM-DD. */
+export function localDate(at: Date, timeZone: string = MARKET_TIME_SETTINGS.timeZone): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+}
+
+/**
+ * When a change is taken to have happened. Normally now. The seed script and
+ * tests may supply a past moment so that demo listings have a past; no screen,
+ * form, or request can, because nothing that handles them passes this.
+ */
+export type ChangeTime = { at?: Date };
 
 export function canEdit(actor: Actor, listing: Pick<Property, "ListAgentKey">): boolean {
   return actor.OsmlsRole === "staff" || listing.ListAgentKey === actor.MemberKey;
@@ -128,7 +142,12 @@ function validated(raw: Record<string, unknown>): ListingInput {
   return parsed.data;
 }
 
-export async function createListing(actor: Actor, raw: Record<string, unknown>): Promise<Property> {
+export async function createListing(
+  actor: Actor,
+  raw: Record<string, unknown>,
+  when: ChangeTime = {},
+): Promise<Property> {
+  const now = when.at ?? new Date();
   if (actor.OsmlsRole !== "agent" || !actor.OfficeKey)
     throw new ListingError("Only agents can enter listings.");
   const input = validated(raw);
@@ -144,9 +163,12 @@ export async function createListing(actor: Actor, raw: Record<string, unknown>):
         ...input,
         OriginalListPrice: input.ListPrice,
         UnparsedAddress: unparsedAddress(input),
-        OnMarketDate: input.StandardStatus === "Active" ? todayIso() : null,
+        OnMarketDate: input.StandardStatus === "Active" ? localDate(now) : null,
         ListAgentKey: actor.MemberKey,
         ListOfficeKey: actor.OfficeKey!,
+        OriginalEntryTimestamp: now,
+        ModificationTimestamp: now,
+        StatusChangeTimestamp: now,
       })
       .returning();
     await tx.insert(historyTransactional).values({
@@ -159,6 +181,7 @@ export async function createListing(actor: Actor, raw: Record<string, unknown>):
       ChangeType: "New Listing",
       ChangedByMemberKey: actor.MemberKey,
       ChangedByMemberID: actor.MemberMlsId,
+      ModificationTimestamp: now,
     });
     return created;
   });
@@ -173,6 +196,7 @@ export async function updateListing(
   listingKey: string,
   raw: Record<string, unknown>,
   correctionReason?: string | null,
+  when: ChangeTime = {},
 ): Promise<{ listing: Property; changedFields: string[] }> {
   const input = validated(raw);
 
@@ -190,7 +214,7 @@ export async function updateListing(
     const changed = TRACKED_FIELDS.filter((f) => asText(current[f]) !== asText(input[f]));
     if (changed.length === 0) return { listing: current, changedFields: [] };
 
-    const now = new Date();
+    const now = when.at ?? new Date();
     const statusChanged = from !== to;
     const priceChanged = current.ListPrice !== input.ListPrice;
 
@@ -199,7 +223,7 @@ export async function updateListing(
       .set({
         ...input,
         UnparsedAddress: unparsedAddress(input),
-        OnMarketDate: current.OnMarketDate ?? (to === "Active" ? todayIso() : null),
+        OnMarketDate: current.OnMarketDate ?? (to === "Active" ? localDate(now) : null),
         ModificationTimestamp: now,
         ...(statusChanged ? { StatusChangeTimestamp: now } : {}),
         ...(priceChanged ? { PriceChangeTimestamp: now } : {}),
@@ -341,7 +365,25 @@ export type SearchFilters = {
   listAgentKey?: string;
   /** Limit results to listings whose pin is inside this map area. */
   bounds?: MapBounds;
+  /** Close dates are YYYY-MM-DD and inclusive. They only ever match closed listings. */
+  closedFrom?: string;
+  closedTo?: string;
+  minClosePrice?: number;
+  maxClosePrice?: number;
+  sort?: SearchSort;
 };
+
+export const SEARCH_SORTS = {
+  changed: "Recently changed",
+  price_high: "List price, high to low",
+  price_low: "List price, low to high",
+  closed_recent: "Close date, most recent first",
+  dom_low: "Days on market, fewest first",
+  dom_high: "Days on market, most first",
+} as const;
+export type SearchSort = keyof typeof SEARCH_SORTS;
+
+const isIsoDate = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
 
 export type MapBounds = { west: number; south: number; east: number; north: number };
 
@@ -360,8 +402,10 @@ export function parseBounds(value: string | undefined): MapBounds | undefined {
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, "\\$&");
 
-export async function searchListings(filters: SearchFilters) {
+export async function searchListings(filters: SearchFilters, options: { asOf?: Date } = {}) {
   const f = filters;
+  // One moment for the whole search, so the order and the figures shown agree.
+  const asOf = options.asOf ?? new Date();
   const fieldFilters = and(
     f.listingId ? ilike(property.ListingId, escapeLike(f.listingId.trim())) : undefined,
     f.address ? ilike(property.UnparsedAddress, `%${escapeLike(f.address.trim())}%`) : undefined,
@@ -373,6 +417,10 @@ export async function searchListings(filters: SearchFilters) {
     f.minBaths != null ? gte(property.BathroomsTotalInteger, f.minBaths) : undefined,
     f.statuses?.length ? inArray(property.StandardStatus, f.statuses) : undefined,
     f.listAgentKey ? eq(property.ListAgentKey, f.listAgentKey) : undefined,
+    isIsoDate(f.closedFrom) ? gte(property.CloseDate, f.closedFrom) : undefined,
+    isIsoDate(f.closedTo) ? lte(property.CloseDate, f.closedTo) : undefined,
+    f.minClosePrice != null ? gte(property.ClosePrice, f.minClosePrice) : undefined,
+    f.maxClosePrice != null ? lte(property.ClosePrice, f.maxClosePrice) : undefined,
   );
   // A listing with no pin cannot be shown to be inside the area, so an area
   // search leaves it out. BETWEEN is never true for a missing value.
@@ -382,6 +430,18 @@ export async function searchListings(filters: SearchFilters) {
         between(property.Longitude, f.bounds.west, f.bounds.east),
       )
     : undefined;
+
+  // Days on market come from the same query that produces the figures shown.
+  const dom = sql<number>`coalesce(mf.dom, 0)`;
+  const tieBreak = [desc(property.ModificationTimestamp), asc(property.ListingId)];
+  const order = {
+    changed: tieBreak,
+    price_high: [desc(property.ListPrice), ...tieBreak],
+    price_low: [asc(property.ListPrice), ...tieBreak],
+    closed_recent: [sql`${property.CloseDate} desc nulls last`, ...tieBreak],
+    dom_low: [asc(dom), ...tieBreak],
+    dom_high: [desc(dom), ...tieBreak],
+  }[f.sort && f.sort in SEARCH_SORTS ? f.sort : "changed"];
 
   const rows = await db
     .select({
@@ -396,8 +456,9 @@ export async function searchListings(filters: SearchFilters) {
     .from(property)
     .innerJoin(member, eq(member.MemberKey, property.ListAgentKey))
     .innerJoin(office, eq(office.OfficeKey, property.ListOfficeKey))
+    .leftJoin(sql`(${marketFactsSql(asOf)}) as mf`, sql`mf.key = ${property.ListingKey}`)
     .where(and(fieldFilters, inArea))
-    .orderBy(desc(property.ModificationTimestamp), asc(property.ListingId))
+    .orderBy(...order)
     .limit(MAX_SEARCH_RESULTS + 1);
 
   // How many listings match the other filters but have no pin.
@@ -406,9 +467,26 @@ export async function searchListings(filters: SearchFilters) {
     .from(property)
     .where(and(fieldFilters, isNull(property.Latitude)));
 
+  const shown = rows.slice(0, MAX_SEARCH_RESULTS);
+  const marketTime = await getMarketTime(
+    shown.map((row) => row.listing.ListingKey),
+    { asOf },
+  );
+  const noMarketTime: MarketTime = {
+    daysOnMarket: 0,
+    cumulativeDaysOnMarket: 0,
+    firstOnMarketDate: null,
+    offMarketDate: null,
+    continues: [],
+  };
+
   return {
     // Search results never carry showing details, whoever is asking.
-    rows: rows.slice(0, MAX_SEARCH_RESULTS).map((row) => ({ ...row, listing: withoutShowing(row.listing) })),
+    rows: shown.map((row) => ({
+      ...row,
+      listing: withoutShowing(row.listing),
+      marketTime: marketTime.get(row.listing.ListingKey) ?? noMarketTime,
+    })),
     truncated: rows.length > MAX_SEARCH_RESULTS,
     withoutLocation,
   };
@@ -451,7 +529,7 @@ export async function getHistory(listingKey: string) {
     .from(historyTransactional)
     .innerJoin(member, eq(member.MemberKey, historyTransactional.ChangedByMemberKey))
     .where(eq(historyTransactional.ResourceRecordKey, listingKey))
-    .orderBy(desc(historyTransactional.ModificationTimestamp), asc(historyTransactional.FieldName));
+    .orderBy(desc(historyTransactional.ModificationTimestamp), desc(historyTransactional.OsmlsSequence));
 }
 
 /** Photos only. A document's key is never served by the photo route. */
