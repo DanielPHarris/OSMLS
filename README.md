@@ -252,8 +252,8 @@ and no adjustments are made between properties.
 ### Added since 0.1: saved searches and collections
 
 The first of four slices of "saved work, sharing, and alerts". Printable reports
-(below) are the second. In-app activity, and email sharing with alerts, are not
-built.
+and saved-search activity (both below) are the second and third. Email sharing
+with scheduled alerts, the fourth, is not built.
 
 - **Saved searches.** Save the current search under a name, run it again, rename
   it, update its criteria, or delete it. A saved search keeps the criteria, not the
@@ -327,9 +327,57 @@ and share links. The page footers that repeat "agent copy" on every printed page
 rely on CSS page-margin boxes, which Chromium-based browsers support; other
 browsers still print the label at the top of the report.
 
+### Added since 0.1: saved-search activity
+
+The third of four slices of "saved work, sharing, and alerts". Each saved search
+shows what is new or changed since its activity was last reset: on the saved
+searches list as a count, and on a page of its own. Nothing is emailed and nothing
+runs in the background; scheduled email alerts are the fourth slice and are not
+built.
+
+- **What counts.** A new listing, a status change, and a list price change. Nothing
+  else: not remarks, photos, documents, showing details, address, beds, or baths.
+- **What a member is given.** The change and when it happened. Activity is built
+  from the change history, which only MLS staff may read in full, so who made a
+  change, whether staff made it, and the reason given are never sent.
+- **Which listings.** Those that match the search as the member would run it now
+  and have such a change. A second group, "may no longer match", holds listings
+  that do not match now and would with their status and list price as they were.
+- **A limit of that second group.** Only status and list price are taken from
+  history. Every other criterion is checked against the listing as it is today. A
+  listing whose bedrooms, address, or map location also changed can appear there
+  without ever having matched, or be missing although it did; and a listing that
+  started or stopped matching only because another field changed is not reported.
+- **"Since".** Saving a search starts it with no activity. Changing its criteria
+  starts it again. Renaming does not. Saved searches made before this feature
+  start from when it was installed.
+- **Seen only when you say so.** Only the button on the activity page marks
+  activity as seen. Viewing, reloading, counting, and running the search change
+  nothing. The button clears everything up to when its page was loaded, and
+  nothing that arrived after. When the page left anything out, the button says so.
+- **Limits**, set in [src/lib/rules/local.ts](src/lib/rules/local.ts): 100 listings
+  a page, most recently changed first, and each listing's 10 most recent changes.
+  The page says when more listings have activity, without claiming a count, and how
+  many earlier changes each listing leaves out.
+- Activity belongs to the saved search's owner. Anyone else gets "not found", for
+  reading it and for marking it seen.
+
+How the checkpoint works, and what it costs: a saved search remembers a history
+sequence number. A database trigger hands those numbers out in the order
+transactions commit, by making each transaction that records a listing change take
+one lock until it ends. That is what makes "everything up to number N" safe: a
+change committed late cannot land behind a checkpoint and be skipped. The cost is
+that changes to listings are committed one at a time across the whole MLS. Photo
+and document files are written before that lock is taken. How much this limits a
+busy MLS has not been measured.
+
+Not included: email or scheduled alerts, activity for collections, a count in the
+page header, live updates, dismissing single changes, and rebuilding criteria other
+than status and list price from history.
+
 ### Not yet built
 
-Share pages for clients or the public, in-app activity and alerts, email sharing,
+Share pages for clients or the public, email sharing and scheduled alerts,
 administration screens, compliance flags, imports and exports, a RESO Web API
 endpoint, fair-housing checks on remarks, password reset, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
@@ -449,8 +497,10 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
 | `Media.OsmlsStoragePath` | Generated file name of the stored photo or document |
 | `Media.OsmlsFileSize`, `Media.OsmlsFileHash` | Size and SHA-256 hash of a stored document |
-| `HistoryTransactional.OsmlsSequence` | The order history rows were written in |
+| `HistoryTransactional.OsmlsSequence` | The order history rows were committed in |
 | `SavedSearch.OsmlsCriteria` | A saved search's criteria, in OSMLS's own form |
+| `SavedSearch.OsmlsActivitySeenThrough` | The history sequence number a saved search's activity has been seen up to |
+| `SavedSearch.OsmlsActivitySeenAt` | When that was last set |
 | `HistoryTransactional.OsmlsStaffCorrection` | Whether MLS staff made the change |
 | `HistoryTransactional.OsmlsCorrectionReason` | The reason staff gave |
 

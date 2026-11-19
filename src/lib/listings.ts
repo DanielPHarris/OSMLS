@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { and, asc, between, count, desc, eq, gte, ilike, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, between, count, desc, eq, gte, ilike, inArray, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { db, type Tx } from "../db";
 import {
   historyTransactional,
@@ -403,34 +403,51 @@ export function parseBounds(value: string | undefined): MapBounds | undefined {
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, "\\$&");
 
-export async function searchListings(filters: SearchFilters, options: { asOf?: Date } = {}) {
-  const f = filters;
-  // One moment for the whole search, so the order and the figures shown agree.
-  const asOf = options.asOf ?? new Date();
-  const fieldFilters = and(
+/**
+ * The search's conditions on a listing, apart from the map area. Status and list
+ * price can be given as expressions, so the same conditions can be asked of what
+ * a listing's status and price used to be (see src/lib/activity.ts).
+ */
+export function fieldConditions(f: SearchFilters, as: { status?: SQL; listPrice?: SQL } = {}): SQL | undefined {
+  const status = as.status ?? sql`${property.StandardStatus}`;
+  const listPrice = as.listPrice ?? sql`${property.ListPrice}`;
+  return and(
     f.listingId ? ilike(property.ListingId, escapeLike(f.listingId.trim())) : undefined,
     f.address ? ilike(property.UnparsedAddress, `%${escapeLike(f.address.trim())}%`) : undefined,
     f.city ? ilike(property.City, escapeLike(f.city.trim())) : undefined,
     f.postalCode ? ilike(property.PostalCode, `${escapeLike(f.postalCode.trim())}%`) : undefined,
-    f.minPrice != null ? gte(property.ListPrice, f.minPrice) : undefined,
-    f.maxPrice != null ? lte(property.ListPrice, f.maxPrice) : undefined,
+    f.minPrice != null ? sql`${listPrice} >= ${f.minPrice}` : undefined,
+    f.maxPrice != null ? sql`${listPrice} <= ${f.maxPrice}` : undefined,
     f.minBeds != null ? gte(property.BedroomsTotal, f.minBeds) : undefined,
     f.minBaths != null ? gte(property.BathroomsTotalInteger, f.minBaths) : undefined,
-    f.statuses?.length ? inArray(property.StandardStatus, f.statuses) : undefined,
+    f.statuses?.length ? inArray(status, f.statuses) : undefined,
     f.listAgentKey ? eq(property.ListAgentKey, f.listAgentKey) : undefined,
     isIsoDate(f.closedFrom) ? gte(property.CloseDate, f.closedFrom) : undefined,
     isIsoDate(f.closedTo) ? lte(property.CloseDate, f.closedTo) : undefined,
     f.minClosePrice != null ? gte(property.ClosePrice, f.minClosePrice) : undefined,
     f.maxClosePrice != null ? lte(property.ClosePrice, f.maxClosePrice) : undefined,
   );
-  // A listing with no pin cannot be shown to be inside the area, so an area
-  // search leaves it out. BETWEEN is never true for a missing value.
-  const inArea = f.bounds
+}
+
+/**
+ * A listing with no pin cannot be shown to be inside the area, so an area search
+ * leaves it out. BETWEEN is never true for a missing value.
+ */
+export function areaCondition(f: SearchFilters): SQL | undefined {
+  return f.bounds
     ? and(
         between(property.Latitude, f.bounds.south, f.bounds.north),
         between(property.Longitude, f.bounds.west, f.bounds.east),
       )
     : undefined;
+}
+
+export async function searchListings(filters: SearchFilters, options: { asOf?: Date } = {}) {
+  const f = filters;
+  // One moment for the whole search, so the order and the figures shown agree.
+  const asOf = options.asOf ?? new Date();
+  const fieldFilters = fieldConditions(f);
+  const inArea = areaCondition(f);
 
   // Days on market come from the same query that produces the figures shown.
   const dom = sql<number>`coalesce(mf.dom, 0)`;

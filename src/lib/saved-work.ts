@@ -35,6 +35,12 @@ import { criteriaFromStored, describeCriteria, type SearchCriteria } from "./sea
 const isKey = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
 const notFound = () => new ListingError("Not found.");
 
+/**
+ * The newest committed history sequence number. Numbers are handed out in commit
+ * order, so nothing at or below it can still arrive (see migration 0008).
+ */
+export const LATEST_HISTORY_SEQUENCE = sql<number>`(select coalesce(max(h."OsmlsSequence"), 0) from "HistoryTransactional" h)`;
+
 type ActiveViewer = NonNullable<Viewer>;
 
 /** A suspended or signed-out account has no saved work to use. */
@@ -131,6 +137,8 @@ export async function createSavedSearch(viewer: Viewer, name: unknown, criteria:
           SavedSearchName,
           OsmlsCriteria: stored,
           SearchQueryHumanReadable: describeCriteria(stored),
+          // A new saved search starts with no activity.
+          OsmlsActivitySeenThrough: LATEST_HISTORY_SEQUENCE,
         })
         .returning();
       return created;
@@ -161,7 +169,14 @@ export async function updateSavedSearchCriteria(viewer: Viewer, key: unknown, cr
     await lockSavedSearch(tx, owner, key);
     const [updated] = await tx
       .update(savedSearch)
-      .set({ OsmlsCriteria: stored, SearchQueryHumanReadable: describeCriteria(stored), ModificationTimestamp: new Date() })
+      .set({
+        OsmlsCriteria: stored,
+        SearchQueryHumanReadable: describeCriteria(stored),
+        ModificationTimestamp: new Date(),
+        // Earlier activity was measured against other criteria, so it starts again.
+        OsmlsActivitySeenThrough: LATEST_HISTORY_SEQUENCE,
+        OsmlsActivitySeenAt: new Date(),
+      })
       .where(eq(savedSearch.SavedSearchKey, key as string))
       .returning();
     return updated;

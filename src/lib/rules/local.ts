@@ -15,6 +15,9 @@ export const MAX_SAVED_SEARCHES_PER_MEMBER = 50;
 export const MAX_COLLECTIONS_PER_MEMBER = 50;
 export const MAX_LISTINGS_PER_COLLECTION = 200;
 export const MAX_SAVED_NAME_LENGTH = 80;
+// Saved-search activity. A page that leaves anything out says so.
+export const MAX_ACTIVITY_LISTINGS = 100;
+export const MAX_ACTIVITY_EVENTS_PER_LISTING = 10;
 // Printable reports. A report that is cut short by either limit says so.
 export const MAX_LISTINGS_PER_REPORT = 50;
 export const MAX_PHOTOS_PER_REPORT = 6;
