@@ -13,7 +13,7 @@ export type Viewer = Pick<Member, "MemberKey" | "OfficeKey" | "OsmlsRole" | "Mem
 export type ListingSide = Pick<Property, "ListAgentKey" | "ListOfficeKey" | "StandardStatus">;
 
 /** An inactive (suspended) account can do nothing, whatever its role. */
-const isActive = (viewer: Viewer): viewer is NonNullable<Viewer> =>
+export const isActive = (viewer: Viewer): viewer is NonNullable<Viewer> =>
   viewer != null && viewer.MemberStatus === "Active";
 
 /** MLS staff: an active account that affirmatively holds the staff role. */

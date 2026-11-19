@@ -47,3 +47,52 @@ body {
   font-size: 11px;
   max-width: 100%;
 }
+
+/*
+ * Printable reports. Printing is the browser's own, including "Save as PDF".
+ * What a copy may contain is decided on the server; nothing here hides data.
+ */
+.report-keep {
+  break-inside: avoid;
+}
+/* Starts on the page of what comes before it: no remarks alone at the top of a page. */
+.report-follow {
+  break-before: avoid;
+  orphans: 3;
+  widows: 3;
+}
+@page {
+  margin: 14mm 12mm 18mm;
+}
+/* Each kind of copy says what it is at the foot of every printed page. */
+.report-agent {
+  page: agent-copy;
+}
+.report-client {
+  page: client-copy;
+}
+@page agent-copy {
+  @bottom-center {
+    content: "Agent copy. For MLS members only. Not for distribution.";
+    font-size: 9pt;
+  }
+}
+@page client-copy {
+  @bottom-center {
+    content: "Information is believed to be reliable but is not guaranteed.";
+    font-size: 9pt;
+  }
+}
+@media print {
+  body {
+    background: #fff;
+  }
+  main {
+    max-width: none;
+    padding: 0;
+  }
+  .report {
+    border: 0;
+    padding: 0;
+  }
+}

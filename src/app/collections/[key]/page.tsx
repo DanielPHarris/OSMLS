@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
+import { ReportLinks } from "@/components/report-view";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDate, formatMoney } from "@/lib/format";
 import { MAX_LISTINGS_PER_COLLECTION, MAX_SAVED_NAME_LENGTH } from "@/lib/rules/local";
@@ -37,6 +38,7 @@ export default async function CollectionPage({ params }: { params: Promise<{ key
         <ActionForm action={deleteCollectionAction.bind(null, collection.CollectionKey)}>
           <button className="btn-secondary">Delete collection</button>
         </ActionForm>
+        {rows.length > 0 && <ReportLinks href={(copy) => `/reports/collection/${collection.CollectionKey}?copy=${copy}`} />}
       </div>
       {rows.length === 0 ? (
         <p className="card text-sm text-muted">This collection is empty.</p>

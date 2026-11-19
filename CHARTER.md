@@ -42,12 +42,15 @@ production-ready.**
   recalculates past figures. Every worked example from the design is a test, each
   setting has a test showing it changes the result, and a browser test covers the
   screens against seeded data. Comparables are not a valuation.
-- Saved work, sharing, and alerts is under way: slice 1 of 4, saved searches and
-  collections, is implemented. They are private to their creator and grant no
-  access; ownership is tested for every operation and every kind of viewer, and
-  overlapping requests are tested. Printable reports, in-app activity, and email
-  sharing with alerts (slices 2 to 4) are not built. Scheduled email alerts remain
-  outstanding until slice 4.
+- Saved work, sharing, and alerts is under way: slices 1 and 2 of 4 are
+  implemented. Saved searches and collections (slice 1) are private to their
+  creator and grant no access; ownership is tested for every operation and every
+  kind of viewer, and overlapping requests are tested. Printable reports (slice 2)
+  come as an agent copy and a client copy. A client copy is built from one explicit
+  list of permitted fields, and tests read the whole response to confirm nothing
+  else is sent. Print layout was checked in Chromium only. In-app activity, and
+  email sharing with alerts (slices 3 and 4), are not built. Scheduled email alerts
+  remain outstanding until slice 4.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -267,7 +270,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | Slice | Delivers | Status |
    | --- | --- | --- |
    | 1 | Saved searches and collections, private to each member | Done 2026-11-19 (issue #12) |
-   | 2 | Printable reports, in an agent copy and a client copy | Not started |
+   | 2 | Printable reports, in an agent copy and a client copy | Done 2026-11-19 (issue #14) |
    | 3 | In-app activity: what is new and changed for each saved search | Not started |
    | 4 | Email sharing with client-safe share pages, and scheduled email alerts | Not started |
 
@@ -279,6 +282,9 @@ Next, in this order unless contributors and the maintainer agree otherwise:
      information outside the MLS. Client copies are built from an explicit list of
      permitted fields, and slice 4's share pages reuse that same list. Agent copies
      show only what the requesting member may see.
+     The list is `src/lib/rules/client-copy.ts`. Which statuses a client copy
+     includes, and leaving days on market and original list price off it, are
+     starting product defaults set there, not access rules.
    - **Saved work does not grant access.** Saved searches and collections belong
      to their creator, with ownership checked on every read and change. Opening
      one applies the member's current account status and current listing

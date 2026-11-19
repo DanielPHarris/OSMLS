@@ -251,8 +251,9 @@ and no adjustments are made between properties.
 
 ### Added since 0.1: saved searches and collections
 
-The first of four slices of "saved work, sharing, and alerts". The other three
-(printable reports, in-app activity, and email sharing with alerts) are not built.
+The first of four slices of "saved work, sharing, and alerts". Printable reports
+(below) are the second. In-app activity, and email sharing with alerts, are not
+built.
 
 - **Saved searches.** Save the current search under a name, run it again, rename
   it, update its criteria, or delete it. A saved search keeps the criteria, not the
@@ -289,9 +290,46 @@ characters that are unique for that member.
 Not included: sharing saved work with anyone, folders, notes, reordering, and MLS
 staff access to members' saved work.
 
+### Added since 0.1: printable reports
+
+The second of four slices of "saved work, sharing, and alerts". A member can print
+one listing, a collection, or the current search results, as an **agent copy** or a
+**client copy**. Printing is the browser's own, including "Save as PDF"; OSMLS does
+not generate or store PDFs.
+
+- **Client copy.** The first thing OSMLS produces that is meant to leave the MLS.
+  It is built on the server from one explicit list of permitted fields, in
+  [src/lib/rules/client-copy.ts](src/lib/rules/client-copy.ts): listing number,
+  status, type, list price, close price and date when closed, address, beds, baths,
+  living area, lot size, year built, public remarks, photos, the listing agent's
+  and office's names, and the details of the member who prepared it. Nothing else
+  is sent to the browser. Photos are referred to by the application's photo
+  address only.
+- **Agent copy.** Adds days on market, original list price, county, parcel number,
+  and showing details where the requesting member may see them under
+  [src/lib/access.ts](src/lib/access.ts). Every page is marked as an agent copy.
+- **No printout** carries change history or documents, for any member.
+- A client copy includes only Active, Active Under Contract, Pending, and Closed
+  listings. This, and leaving days on market and original list price off client
+  copies, are OSMLS's starting defaults, set in that same file. They are not access
+  rules and not a statement of any MLS's policy.
+- A report holds up to 50 listings, and a single listing up to 6 photos (set in
+  [src/lib/rules/local.ts](src/lib/rules/local.ts)). Status is applied before the
+  limit. A report says, at the top and the bottom, what it left out and why, and
+  gives a total only when one was counted: a search reads at most 100 matches, so a
+  report of a larger search says it is incomplete instead of claiming a total.
+- Collections print in the order listings were added; searches in the search's
+  chosen order. A report of someone else's collection is "not found".
+
+Not included: generated PDFs, comparables or CMA reports, logos or branding,
+choosing which fields to print, a map in print, a record of what was printed, email,
+and share links. The page footers that repeat "agent copy" on every printed page
+rely on CSS page-margin boxes, which Chromium-based browsers support; other
+browsers still print the label at the top of the report.
+
 ### Not yet built
 
-Sharing with clients or the public, printable reports, alerts, email sharing,
+Share pages for clients or the public, in-app activity and alerts, email sharing,
 administration screens, compliance flags, imports and exports, a RESO Web API
 endpoint, fair-housing checks on remarks, password reset, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
