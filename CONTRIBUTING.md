@@ -11,6 +11,13 @@ contributions of code, tests, documentation, and MLS domain knowledge are welcom
   agreed before you spend time on it.
 - Features on the charter's deferred list are unlikely to be accepted for now.
 
+## Pull requests
+
+Use pull requests for substantive changes. Keep each pull request focused on one
+coherent change that can be reviewed independently, and include review fixes in that
+same pull request. Maintainers may commit small documentation-only fixes directly to
+`main`.
+
 ## Setting up
 
 Follow "Develop" in the [README](README.md).
