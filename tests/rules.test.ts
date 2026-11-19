@@ -79,6 +79,16 @@ describe("listing validation", () => {
     if (!result.ok) expect(result.errors[field]).toBeTruthy();
   });
 
+  it("rejects dates that are well formed but not on the calendar", () => {
+    for (const date of ["2026-02-31", "2026-02-29", "2026-04-31", "2026-13-01"]) {
+      const contract = parseListingInput({ ...valid, ListingContractDate: date });
+      expect(!contract.ok && contract.errors.ListingContractDate, date).toBeTruthy();
+      const close = parseListingInput({ ...valid, StandardStatus: "Closed", ClosePrice: "1", CloseDate: date });
+      expect(!close.ok && close.errors.CloseDate, date).toBeTruthy();
+    }
+    expect(parseListingInput({ ...valid, ListingContractDate: "2024-02-29" }).ok).toBe(true);
+  });
+
   it("requires close price and date exactly when the listing is closed", () => {
     const closedWithout = parseListingInput({ ...valid, StandardStatus: "Closed" });
     expect(closedWithout.ok).toBe(false);

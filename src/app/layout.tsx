@@ -23,6 +23,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <>
                 <nav className="flex gap-4 text-sm font-medium">
                   <Link href="/search">Search</Link>
+                  <Link href="/saved-searches">Saved searches</Link>
+                  <Link href="/collections">Collections</Link>
                   {current.OsmlsRole === "agent" && (
                     <>
                       <Link href="/search?mine=1&s=1">My listings</Link>

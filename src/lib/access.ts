@@ -31,6 +31,20 @@ const isInListingOffice = (viewer: Viewer, listing: ListingSide): boolean =>
 
 const isAgent = (viewer: Viewer): boolean => isActive(viewer) && viewer.OsmlsRole === "agent";
 
+/*
+ * Saved work belongs to the member who made it. No one else may read or change
+ * it: not a colleague in the same office, and not MLS staff. Staff have saved
+ * work of their own on the same terms.
+ */
+const ownsSavedWork = (viewer: Viewer, ownerMemberKey: string): boolean =>
+  isActive(viewer) && viewer.MemberKey === ownerMemberKey;
+
+export const canUseSavedSearch = (viewer: Viewer, savedSearch: { MemberKey: string }): boolean =>
+  ownsSavedWork(viewer, savedSearch.MemberKey);
+
+export const canUseCollection = (viewer: Viewer, collection: { MemberKey: string }): boolean =>
+  ownsSavedWork(viewer, collection.MemberKey);
+
 export function canViewDocument(
   viewer: Viewer,
   listing: ListingSide,

@@ -10,6 +10,8 @@ import { ListingError, addPhoto, createListing, removePhoto, updateListing } fro
 import { getCurrentMember } from "@/lib/session";
 
 export type FormState = {
+  /** True when the message reports success. */
+  ok?: boolean;
   message?: string;
   errors?: FieldErrors;
   values?: Record<string, string>;

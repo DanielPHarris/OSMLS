@@ -6,6 +6,7 @@ import {
   SHOWING_REQUIREMENTS,
   STANDARD_STATUSES,
 } from "./lookups";
+import { isCalendarDate } from "./validation";
 import {
   EARLIEST_YEAR_BUILT,
   POSTAL_CODE_PATTERN,
@@ -22,7 +23,7 @@ const isoDate = (label: string) =>
   z
     .string({ error: `${label} is required.` })
     .regex(/^\d{4}-\d{2}-\d{2}$/, `${label} must be a date.`)
-    .refine((s) => !Number.isNaN(Date.parse(s)), `${label} must be a real date.`);
+    .refine(isCalendarDate, `${label} must be a real date.`);
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** Separates the chosen values of a multiple-choice field when it travels as one string. */
