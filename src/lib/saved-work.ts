@@ -7,6 +7,7 @@ import {
   office,
   property,
   savedSearch,
+  share,
   type Collection,
   type SavedSearch,
 } from "../db/schema";
@@ -176,6 +177,14 @@ export async function updateSavedSearchCriteria(viewer: Viewer, key: unknown, cr
         // Earlier activity was measured against other criteria, so it starts again.
         OsmlsActivitySeenThrough: LATEST_HISTORY_SEQUENCE,
         OsmlsActivitySeenAt: new Date(),
+        // The same goes for email alerts: the checkpoint, the schedule, and any
+        // pause start again, and a send already under way must not undo this.
+        OsmlsAlertSentThrough: LATEST_HISTORY_SEQUENCE,
+        OsmlsAlertLastSentAt: new Date(),
+        OsmlsAlertAttempts: 0,
+        OsmlsAlertFailures: 0,
+        OsmlsAlertPaused: null,
+        OsmlsAlertGeneration: sql`${savedSearch.OsmlsAlertGeneration} + 1`,
       })
       .where(eq(savedSearch.SavedSearchKey, key as string))
       .returning();
@@ -318,6 +327,12 @@ export async function deleteCollection(viewer: Viewer, key: unknown): Promise<vo
   const owner = active(viewer);
   await db.transaction(async (tx) => {
     await lockCollection(tx, owner, key);
+    // Links to the collection end here, and their recipients' addresses are
+    // deleted. The records stay (see OsmlsShare in src/db/schema.ts).
+    await tx
+      .update(share)
+      .set({ OsmlsRevokedTimestamp: sql`coalesce(${share.OsmlsRevokedTimestamp}, now())`, OsmlsRecipientEmail: null })
+      .where(eq(share.CollectionKey, key as string));
     await tx.delete(collection).where(eq(collection.CollectionKey, key as string));
   });
 }

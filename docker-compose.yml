@@ -17,6 +17,14 @@ services:
       timeout: 3s
       retries: 30
 
+  # A mail catcher for the demo and the tests: it accepts every email and delivers
+  # none. Read what was "sent" at http://localhost:8025.
+  mail:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "${OSMLS_SMTP_PORT:-1025}:1025"
+      - "${OSMLS_MAIL_PORT:-8025}:8025"
+
   app:
     build: .
     depends_on:
@@ -28,6 +36,8 @@ services:
       BETTER_AUTH_URL: http://localhost:${OSMLS_PORT:-3000}
       MEDIA_DIR: /data/media
       DEMO_PASSWORD: osmls-demo-password
+      SMTP_URL: smtp://mail:1025
+      MAIL_FROM: OSMLS demo <no-reply@osmls.example>
       # Any MapLibre-compatible style URL. Empty means the demo default.
       MAP_STYLE_URL: ${MAP_STYLE_URL:-}
     ports:
@@ -36,6 +46,20 @@ services:
       # Shared with local development (MEDIA_DIR=./data/media), so photos uploaded
       # either way show up in both.
       - ./data/media:/data/media
+
+  # Sends due saved-search alerts and tidies expired links, once an hour. A real
+  # installation would schedule `pnpm alerts:send` however it schedules jobs.
+  alerts:
+    build: .
+    depends_on:
+      - app
+    environment:
+      DATABASE_URL: postgres://osmls:osmls@db:5432/osmls
+      BETTER_AUTH_SECRET: dev-only-secret-change-me-before-any-real-use
+      BETTER_AUTH_URL: http://localhost:${OSMLS_PORT:-3000}
+      SMTP_URL: smtp://mail:1025
+      MAIL_FROM: OSMLS demo <no-reply@osmls.example>
+    command: ["sh", "-c", "while true; do sleep 3600; pnpm alerts:send; done"]
 
 volumes:
   osmls-db:

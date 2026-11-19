@@ -61,7 +61,7 @@ const Facts = ({ facts }: { facts: Fact[] }) => (
   </dl>
 );
 
-function Listing({ listing, agent, single }: { listing: ClientListing; agent: AgentListing | null; single: boolean }) {
+export function ReportListing({ listing, agent, single }: { listing: ClientListing; agent: AgentListing | null; single: boolean }) {
   const photos = listing.photoUrls;
   return (
     <article className="report-listing border-t border-line py-4 first:border-0" data-testid="report-listing">
@@ -179,8 +179,8 @@ export function ReportView({
         ) : (
           <div>
             {report.copy === "agent"
-              ? report.listings.map((l) => <Listing key={l.ListingId} listing={l} agent={l} single={report.kind === "listing"} />)
-              : report.listings.map((l) => <Listing key={l.ListingId} listing={l} agent={null} single={report.kind === "listing"} />)}
+              ? report.listings.map((l) => <ReportListing key={l.ListingId} listing={l} agent={l} single={report.kind === "listing"} />)
+              : report.listings.map((l) => <ReportListing key={l.ListingId} listing={l} agent={null} single={report.kind === "listing"} />)}
           </div>
         )}
         {notes("bottom")}

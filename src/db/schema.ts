@@ -275,10 +275,30 @@ export const savedSearch = pgTable(
     OsmlsActivitySeenThrough: bigint({ mode: "number" }).notNull().default(0),
     // When that checkpoint was last set.
     OsmlsActivitySeenAt: timestamptz().notNull().defaultNow(),
+    // Scheduled email alerts to the owner. See src/lib/alerts.ts.
+    // Null means off.
+    OsmlsAlertFrequency: text(),
+    // The email checkpoint, separate from the one above: history up to here has
+    // been emailed, or was behind the member when alerts were switched on.
+    OsmlsAlertSentThrough: bigint({ mode: "number" }).notNull().default(0),
+    // When the last alert was accepted, or when alerts were switched on or the
+    // criteria changed. The next alert is not due until one period after this.
+    OsmlsAlertLastSentAt: timestamptz(),
+    // Sends started for the pending activity whose outcome is not known.
+    OsmlsAlertAttempts: integer().notNull().default(0),
+    // Sends in a row that the mail server definitely did not take.
+    OsmlsAlertFailures: integer().notNull().default(0),
+    // Why sending has stopped until the member resumes it, if it has.
+    OsmlsAlertPaused: text(),
+    // Goes up whenever the member changes the alert or the criteria, so a send
+    // that began before the change cannot write over what the change set.
+    OsmlsAlertGeneration: integer().notNull().default(0),
     OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
     ModificationTimestamp: timestamptz().notNull().defaultNow(),
   },
   (t) => [
+    check("SavedSearch_alert_frequency_valid", sql`${t.OsmlsAlertFrequency} IS NULL OR ${t.OsmlsAlertFrequency} IN ('daily', 'weekly')`),
+    check("SavedSearch_alert_paused_valid", sql`${t.OsmlsAlertPaused} IS NULL OR ${t.OsmlsAlertPaused} IN ('failed', 'uncertain')`),
     check("SavedSearch_name_not_blank", sql`${t.SavedSearchName} IS NOT NULL AND length(trim(${t.SavedSearchName})) > 0`),
     // A member cannot have two with the same name, whatever the capitalisation.
     uniqueIndex("SavedSearch_member_name_unique").on(t.MemberKey, sql`lower(${t.SavedSearchName})`),
@@ -320,6 +340,49 @@ export const collectionListing = pgTable(
 );
 
 // ---- Sign-in library tables (Better Auth core schema) ----
+
+/*
+ * A link a member gives a client. It holds no listing data: the page it opens is
+ * built fresh through the client boundary (src/lib/rules/client-copy.ts) each
+ * time. Only a hash of the link's secret is kept, so the link itself cannot be
+ * read back from the database. See src/lib/shares.ts.
+ */
+export const share = pgTable(
+  "OsmlsShare",
+  {
+    ShareKey: uuid().primaryKey().defaultRandom(),
+    MemberKey: uuid()
+      .notNull()
+      .references(() => member.MemberKey),
+    OsmlsTokenHash: text().notNull().unique(),
+    // One of these: the listing or the collection the link shows. Neither, once
+    // a shared collection has been deleted: the link is over, but its record is
+    // kept for a while so that the email still counts towards the daily limit
+    // and its recipient can still ask for no more email.
+    ListingKey: uuid().references(() => property.ListingKey),
+    CollectionKey: uuid().references(() => collection.CollectionKey, { onDelete: "set null" }),
+    ExpirationTimestamp: timestamptz().notNull(),
+    OsmlsRevokedTimestamp: timestamptz(),
+    // Set only when the link was sent by email. The address is deleted when the
+    // link is revoked, when it expires, or when the recipient asks for no more
+    // email. Its keyed hash stays with the row so that request can still be met.
+    OsmlsRecipientEmail: text(),
+    OsmlsRecipientHash: text(),
+    OsmlsSentTimestamp: timestamptz(),
+    OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
+  },
+  (t) => [
+    check("OsmlsShare_one_target", sql`num_nonnulls(${t.ListingKey}, ${t.CollectionKey}) <= 1`),
+    index("OsmlsShare_member_idx").on(t.MemberKey),
+    index("OsmlsShare_recipient_idx").on(t.OsmlsRecipientHash),
+  ],
+);
+
+// Addresses that asked for no more email, kept only as keyed hashes.
+export const mailBlock = pgTable("OsmlsMailBlock", {
+  OsmlsAddressHash: text().primaryKey(),
+  OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
+});
 
 export const user = pgTable("user", {
   id: text().primaryKey(),
@@ -378,3 +441,4 @@ export type Media = typeof media.$inferSelect;
 export type HistoryRow = typeof historyTransactional.$inferSelect;
 export type SavedSearch = typeof savedSearch.$inferSelect;
 export type Collection = typeof collection.$inferSelect;
+export type Share = typeof share.$inferSelect;

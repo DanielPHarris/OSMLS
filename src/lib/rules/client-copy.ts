@@ -60,10 +60,15 @@ export type ClientListingSource = {
   officeName: string;
   /** Keys of photos only, in the order to show them. */
   photoKeys: readonly string[];
+  /**
+   * The address a photo is fetched from. Members' copies use the members-only
+   * photo address; a shared page gives an address under its own link.
+   */
+  photoUrl?: (mediaKey: string) => string;
 };
 
 /** Builds a new object holding only what a client may be given. */
-export function toClientListing({ listing, agentName, officeName, photoKeys }: ClientListingSource): ClientListing {
+export function toClientListing({ listing, agentName, officeName, photoKeys, photoUrl }: ClientListingSource): ClientListing {
   const copied = Object.fromEntries(CLIENT_LISTING_FIELDS.map((field) => [field, listing[field]])) as Pick<
     Property,
     (typeof CLIENT_LISTING_FIELDS)[number]
@@ -75,6 +80,6 @@ export function toClientListing({ listing, agentName, officeName, photoKeys }: C
     CloseDate: closed ? listing.CloseDate : null,
     ListOfficeName: officeName,
     ListAgentFullName: agentName,
-    photoUrls: photoKeys.map((key) => `/media/${key}`),
+    photoUrls: photoKeys.map(photoUrl ?? ((key) => `/media/${key}`)),
   };
 }

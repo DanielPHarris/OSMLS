@@ -2,9 +2,11 @@ import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { MAX_SAVED_NAME_LENGTH, MAX_SAVED_SEARCHES_PER_MEMBER } from "@/lib/rules/local";
 import { countActivity, type ActivityCount } from "@/lib/activity";
+import { ALERT_FREQUENCIES, pauseNotice } from "@/lib/alerts";
+import { mailEnabled } from "@/lib/mail";
 import { listSavedSearches } from "@/lib/saved-work";
 import { requireMember } from "@/lib/session";
-import { deleteSavedSearchAction, renameSavedSearchAction } from "../saved-work-actions";
+import { deleteSavedSearchAction, renameSavedSearchAction, resumeAlertAction, setAlertAction } from "../saved-work-actions";
 
 function activityLabel(count: ActivityCount | undefined): string {
   if (!count || count.listings === 0) return "No new activity";
@@ -17,6 +19,7 @@ export default async function SavedSearchesPage() {
   const searches = await listSavedSearches(current);
   // Counting activity never marks it as seen.
   const activity = await countActivity(current);
+  const email = mailEnabled();
   return (
     <div className="space-y-6">
       <div>
@@ -70,6 +73,47 @@ export default async function SavedSearchesPage() {
                     Delete
                   </button>
                 </ActionForm>
+              </div>
+              <div className="mt-3 border-t border-line pt-3" data-testid="alert">
+                {email || s.OsmlsAlertFrequency ? (
+                  <ActionForm action={setAlertAction.bind(null, s.SavedSearchKey)} className="flex flex-wrap items-end gap-3">
+                    <label className="label">
+                      Email alerts
+                      <select
+                        name="frequency"
+                        defaultValue={s.OsmlsAlertFrequency ?? "off"}
+                        aria-label={`Email alerts for ${s.SavedSearchName}`}
+                        className="field"
+                      >
+                        <option value="off">Off</option>
+                        {Object.entries(ALERT_FREQUENCIES).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="btn-secondary" aria-label={`Save email alerts for ${s.SavedSearchName}`}>
+                      Save alert
+                    </button>
+                    <p className="w-full text-xs text-muted">
+                      Sent to {current.MemberEmail} when this search has new activity, at most once a day (daily) or once
+                      a week (weekly). An email says how many listings changed and links here; it never marks activity as seen.
+                    </p>
+                  </ActionForm>
+                ) : (
+                  <p className="text-sm text-muted">Email alerts are not available: email is not set up on this system.</p>
+                )}
+                {pauseNotice(s.OsmlsAlertPaused) && (
+                  <div className="mt-2 rounded bg-amber-50 p-3 text-sm" role="note" data-testid="alert-paused">
+                    <p>{pauseNotice(s.OsmlsAlertPaused)}</p>
+                    <ActionForm action={resumeAlertAction.bind(null, s.SavedSearchKey)} className="mt-2">
+                      <button className="btn-secondary" aria-label={`Resume email alerts for ${s.SavedSearchName}`}>
+                        Resume alerts
+                      </button>
+                    </ActionForm>
+                  </div>
+                )}
               </div>
             </li>
           ))}

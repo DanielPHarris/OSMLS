@@ -252,8 +252,8 @@ and no adjustments are made between properties.
 ### Added since 0.1: saved searches and collections
 
 The first of four slices of "saved work, sharing, and alerts". Printable reports
-and saved-search activity (both below) are the second and third. Email sharing
-with scheduled alerts, the fourth, is not built.
+saved-search activity, and email sharing with scheduled alerts (all below) are the
+other three.
 
 - **Saved searches.** Save the current search under a name, run it again, rename
   it, update its criteria, or delete it. A saved search keeps the criteria, not the
@@ -331,9 +331,8 @@ browsers still print the label at the top of the report.
 
 The third of four slices of "saved work, sharing, and alerts". Each saved search
 shows what is new or changed since its activity was last reset: on the saved
-searches list as a count, and on a page of its own. Nothing is emailed and nothing
-runs in the background; scheduled email alerts are the fourth slice and are not
-built.
+searches list as a count, and on a page of its own. Scheduled email alerts are the
+fourth slice, below; they never mark this activity as seen.
 
 - **What counts.** A new listing, a status change, and a list price change. Nothing
   else: not remarks, photos, documents, showing details, address, beds, or baths.
@@ -371,14 +370,118 @@ that changes to listings are committed one at a time across the whole MLS. Photo
 and document files are written before that lock is taken. How much this limits a
 busy MLS has not been measured.
 
-Not included: email or scheduled alerts, activity for collections, a count in the
+Not included: activity for collections, a count in the
 page header, live updates, dismissing single changes, and rebuilding criteria other
 than status and list price from history.
 
+### Added since 0.1: sharing with clients and scheduled email alerts
+
+The fourth of four slices of "saved work, sharing, and alerts". A member can give a
+client a link to one listing or to one of their collections, and can have activity
+on a saved search emailed to themself on a schedule.
+
+**Links for clients**
+
+- **No account needed.** The link is the permission: anyone holding it can open the
+  page until it expires or is revoked. Treat a link like the listing sheet it
+  replaces.
+- **Client copy only.** The page is built by the same function, from the same list
+  of permitted fields and statuses, as a printed client copy
+  ([src/lib/rules/client-copy.ts](src/lib/rules/client-copy.ts)). Tests read the
+  whole response, for a listing and for a collection, and find nothing else in it.
+- **Current contents.** A page shows listings as they are when it is opened. A
+  collection link shows what is in the collection then, so **a listing added later
+  becomes visible to anyone holding the link**; the collection page says so and
+  says when a collection is shared. A listing outside the client statuses is left
+  off and counted, and a page is cut off at 50 listings and says so.
+- **Expiry.** 7, 30 (the default) or 90 days. There are no permanent links and no
+  extensions.
+- **Shown once.** Only a hash of a link is stored, so a link is shown when it is
+  made (and in the email, if emailed) and cannot be read back afterwards.
+- **Ending access.** A link stops working when its owner revokes it, when it
+  expires, while its owner's account is suspended, and when a shared collection is
+  deleted. Each answers exactly like a link that never existed, for the page and
+  for its photos.
+- **Photos.** Served under the link's own address, only while the link works and
+  only the photos its page shows. The members-only photo address is unchanged.
+- **Not stored or passed on.** Pages and photos are sent with `no-store`, are
+  marked not to be indexed, send no referrer, and load nothing from other sites.
+  Who opens a link is not recorded.
+- **Limits.** 50 working links and 50 emailed links a day per member.
+- **What revoking cannot do.** It cannot recall a page or a photo someone already
+  saved.
+
+**Email**
+
+- **The operator's mail server.** Set `SMTP_URL` and `MAIL_FROM`. With either
+  unset, email is off: the screens say so, links can still be made and copied, and
+  alerts cannot be switched on.
+- **The demo delivers nothing.** `docker compose up` starts a
+  [Mailpit](https://mailpit.axllent.org/) mail catcher; read what was "sent" at
+  http://localhost:8025.
+- **Plain text, and no listing data.** A sharing email has the member's name and
+  office, an optional short note, the link, when it expires, and a link to stop
+  further email. Replies go to the member.
+- **Not handled:** bounces, delivery reports, and sender reputation (SPF, DKIM).
+
+**A recipient's address**
+
+- **Kept only while its link works.** It is deleted when the link is revoked, and
+  by the scheduled command once the link has expired.
+- **Stop link.** Every sharing email has one, and it needs no account. Opening it
+  changes nothing; its button deletes the address from every link and blocks
+  further email to it from this installation. Links already sent keep working.
+- **How the block is kept.** As a keyed hash of the address, not the address. A
+  member who enters a blocked address is told it cannot be emailed.
+- **Records.** A link's record, with the keyed hash of its recipient, is deleted 30
+  days after the link ended. After that its stop link no longer works. Deleting a
+  shared collection ends its links and deletes their addresses but keeps these
+  records for that time, so the emails still count towards the daily limit and
+  their stop links still work.
+
+**Scheduled alerts**
+
+- **To the member only.** A saved search's owner can have its activity emailed to
+  their account address, daily or weekly. It is off until switched on. Nothing is
+  emailed to clients on a schedule. A suspended member is sent nothing; that is
+  checked again for each alert as it is sent, not once for the run.
+- **What the email says.** How many listings have activity, and a link to the
+  activity page, which requires sign-in. No listing data.
+- **Run by a command.** `pnpm alerts:send` sends what is due and deletes expired
+  addresses and old link records. The operator schedules it; the Compose demo runs
+  it hourly. Only one run proceeds at a time.
+- **A separate checkpoint.** Email has its own checkpoint. Sending never marks
+  activity as seen in the application, and marking as seen never holds back an
+  email.
+- **Nothing is skipped.** The email checkpoint moves only after the mail server
+  accepts the message, to a boundary read in the same snapshot as the activity.
+- **Not exactly once.** Email cannot promise that. What happens instead:
+
+  | Outcome | What happens |
+  | --- | --- |
+  | The server refuses, or cannot be reached | Not delivered. Tried again on the next run. After 5 in a row the alert pauses. |
+  | No answer after the message was handed over, or the server accepted and recording that failed | It may or may not have been delivered. Tried again on the next run, up to 3 sends in all, then the alert pauses. |
+
+  A paused alert says so on the saved searches page, and after unknown outcomes
+  says the email may have arrived up to 3 times or not at all. Pausing skips
+  nothing: resuming sends what is pending. Repeats carry the same Message-ID, which
+  some mail systems use to hide duplicates; that is not relied on.
+- **When the checkpoint starts again.** Switching alerts on, or on again after
+  being off, starts from that moment. Changing the criteria resets it, with the
+  schedule and any pause. Renaming and changing the frequency keep it, and so does
+  a suspension: once reinstated, the member is sent what accumulated.
+- **Changes during a send.** A send that finishes after the member changed the
+  criteria or switched the alert off does not write over what they set.
+
+Not included: client accounts, scheduled email to clients, sharing a saved search,
+HTML or branded email, open and click tracking, bounce handling, staff screens for
+members' links, and text messages. How an unknown outcome is recognised depends on
+the mail library's error codes; anything not recognised as a refusal is treated as
+unknown.
+
 ### Not yet built
 
-Share pages for clients or the public, email sharing and scheduled alerts,
-administration screens, compliance flags, imports and exports, a RESO Web API
+Client accounts and scheduled email to clients, administration screens, compliance flags, imports and exports, a RESO Web API
 endpoint, fair-housing checks on remarks, password reset, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
 
@@ -393,6 +496,8 @@ docker compose up --build
 Open http://localhost:3000. If port 3000 is taken, use another:
 `OSMLS_PORT=3300 docker compose up --build`. The database is published on port 5433;
 change that with `OSMLS_DB_PORT` (and match it in `.env` if you develop locally).
+Email the demo "sends" is caught, not delivered: read it at http://localhost:8025
+(`OSMLS_MAIL_PORT` and `OSMLS_SMTP_PORT` move the mail catcher's ports).
 
 Sign in with a demo account. The password for all of them is the `DEMO_PASSWORD`
 value in [.env.example](.env.example).
@@ -434,7 +539,7 @@ You need Node.js 22 or later, [pnpm](https://pnpm.io/), and Docker.
 ```bash
 cp .env.example .env
 pnpm install
-docker compose up -d db     # PostgreSQL on localhost:5433
+docker compose up -d db mail   # PostgreSQL on localhost:5433, mail catcher on 1025 (read it at :8025)
 pnpm db:migrate
 pnpm db:seed
 pnpm dev
@@ -445,7 +550,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, access control, market research, and saved work in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, and sharing in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -457,7 +562,8 @@ Linux.
 Tests use their own database (`TEST_DATABASE_URL`), which is deleted, re-created,
 and seeded on the same PostgreSQL server at the start of every run. They never write to the development or
 demo database. The browser tests start their own server on port 3210 and use a blank
-local map style, so they do not depend on an outside map service. The default map
+local map style, so they do not depend on an outside map service. The sharing tests
+send real email to the mail catcher (`docker compose up -d mail`) and read it back. The default map
 service was checked by hand in a production build, at desktop and phone widths.
 
 ## How it is built
@@ -501,6 +607,12 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `SavedSearch.OsmlsCriteria` | A saved search's criteria, in OSMLS's own form |
 | `SavedSearch.OsmlsActivitySeenThrough` | The history sequence number a saved search's activity has been seen up to |
 | `SavedSearch.OsmlsActivitySeenAt` | When that was last set |
+| `SavedSearch.OsmlsAlertFrequency` | Email alerts: daily, weekly, or empty for off |
+| `SavedSearch.OsmlsAlertSentThrough`, `OsmlsAlertLastSentAt` | The email checkpoint, and when the schedule last started |
+| `SavedSearch.OsmlsAlertAttempts`, `OsmlsAlertFailures`, `OsmlsAlertPaused` | Sends with an unknown outcome, refusals in a row, and why sending is paused |
+| `SavedSearch.OsmlsAlertGeneration` | Raised by each change the member makes, so a late send cannot undo it |
+| `OsmlsShare` | A link given to a client: who made it, a hash of the link, what it shows, when it expires or was revoked, and the recipient's address while kept |
+| `OsmlsMailBlock` | Keyed hashes of addresses that asked for no more email |
 | `HistoryTransactional.OsmlsStaffCorrection` | Whether MLS staff made the change |
 | `HistoryTransactional.OsmlsCorrectionReason` | The reason staff gave |
 

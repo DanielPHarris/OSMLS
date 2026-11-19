@@ -25,3 +25,15 @@ export const MAX_PHOTOS_PER_REPORT = 6;
 export const DEFAULT_MAP_VIEW = { longitude: -122.26, latitude: 47.31, zoom: 10 };
 /** Used when MAP_STYLE_URL is not set. Any MapLibre-compatible style URL works. */
 export const DEFAULT_MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+// Links shared with clients. Every link expires; there is no permanent one.
+export const SHARE_EXPIRY_DAYS = [7, 30, 90] as const;
+export const DEFAULT_SHARE_EXPIRY_DAYS = 30;
+export const MAX_SHARE_NOTE_LENGTH = 500;
+export const MAX_ACTIVE_SHARES_PER_MEMBER = 50;
+export const MAX_SHARE_EMAILS_PER_DAY = 50;
+// An ended link's record, with the keyed hash of its recipient, is deleted this long after it ended.
+export const SHARE_RECORD_RETENTION_DAYS = 30;
+// Scheduled email alerts. An alert pauses after this many sends in a row that
+// the mail server refused, or this many whose outcome is not known.
+export const MAX_ALERT_FAILURES = 5;
+export const MAX_UNCERTAIN_ALERT_SENDS = 3;

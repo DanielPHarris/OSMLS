@@ -34,6 +34,13 @@ jobs:
           --health-timeout 3s
           --health-retries 30
 
+      # A mail catcher: accepts every email the tests send and delivers none.
+      mail:
+        image: axllent/mailpit:v1.27
+        ports:
+          - 1025:1025
+          - 8025:8025
+
     steps:
       - uses: actions/checkout@v4
 
