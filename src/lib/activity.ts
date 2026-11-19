@@ -85,7 +85,7 @@ const notFound = () => new ListingError("Not found.");
 const isActiveMember = (viewer: Member | null): viewer is Member => viewer != null && viewer.MemberStatus === "Active";
 const snapshot = { isolationLevel: "repeatable read" } as const;
 
-const latestSequence = async (tx: Tx): Promise<number> => {
+export const latestSequence = async (tx: Tx): Promise<number> => {
   const [{ latest }] = await tx
     .select({ latest: sql<number>`coalesce(max(${historyTransactional.OsmlsSequence}), 0)`.mapWith(Number) })
     .from(historyTransactional);
@@ -93,10 +93,12 @@ const latestSequence = async (tx: Tx): Promise<number> => {
 };
 
 /**
- * Listings with an event after the checkpoint and up to the boundary that match
+ * Listings with an event after a checkpoint and up to the boundary that match
  * now, or may have matched at the checkpoint. Most recently changed first.
+ * The checkpoint is the in-app one for the activity page, and the email one for
+ * scheduled alerts (src/lib/alerts.ts).
  */
-async function listingsWithActivity(tx: Tx, viewer: Member, row: SavedSearch, through: number, limit: number) {
+export async function listingsWithActivity(tx: Tx, viewer: Member, row: SavedSearch, since: number, through: number, limit: number) {
   const { criteria, ignored } = criteriaFromStored(row.OsmlsCriteria);
   const filters = criteriaToFilters(criteria, viewer);
   const h = historyTransactional;
@@ -119,7 +121,7 @@ async function listingsWithActivity(tx: Tx, viewer: Member, row: SavedSearch, th
         and(
           eq(h.ResourceName, "Property"),
           inArray(h.FieldName, EVENT_FIELDS),
-          gt(h.OsmlsSequence, row.OsmlsActivitySeenThrough),
+          gt(h.OsmlsSequence, since),
           lte(h.OsmlsSequence, through),
         ),
       )
@@ -170,7 +172,7 @@ export async function getActivity(viewer: Member | null, key: unknown): Promise<
     const [row] = await tx.select().from(savedSearch).where(eq(savedSearch.SavedSearchKey, key));
     if (!row || !canUseSavedSearch(viewer, row)) return null;
     const through = await latestSequence(tx);
-    const { rows, more, ignored } = await listingsWithActivity(tx, viewer, row, through, MAX_ACTIVITY_LISTINGS);
+    const { rows, more, ignored } = await listingsWithActivity(tx, viewer, row, row.OsmlsActivitySeenThrough, through, MAX_ACTIVITY_LISTINGS);
 
     const h = historyTransactional;
     const history = rows.length
@@ -219,7 +221,7 @@ export async function countActivity(viewer: Member | null): Promise<Map<string, 
     const mine = await tx.select().from(savedSearch).where(eq(savedSearch.MemberKey, viewer.MemberKey));
     const through = await latestSequence(tx);
     for (const row of mine) {
-      const { rows, more } = await listingsWithActivity(tx, viewer, row, through, MAX_ACTIVITY_LISTINGS);
+      const { rows, more } = await listingsWithActivity(tx, viewer, row, row.OsmlsActivitySeenThrough, through, MAX_ACTIVITY_LISTINGS);
       counts.set(row.SavedSearchKey, { listings: rows.length, more });
     }
   }, snapshot);

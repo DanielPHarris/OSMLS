@@ -6,6 +6,20 @@ const nextConfig: NextConfig = {
     // 1 MB. The real limits are enforced in src/lib (8 MB photos, 15 MB documents).
     serverActions: { bodySizeLimit: "20mb" },
   },
+  // Pages and photos behind a shared link: never stored, never indexed, and the
+  // link (which is in the address) is never passed on to another site.
+  async headers() {
+    return [
+      {
+        source: "/share/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+    ];
+  },
   turbopack: {
     rules: {
       "*.css": {

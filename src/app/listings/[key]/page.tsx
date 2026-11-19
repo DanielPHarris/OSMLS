@@ -16,11 +16,14 @@ import { canEdit, canViewHistory, getHistory, getListing } from "@/lib/listings"
 import { getMarketTimeline } from "@/lib/market-research";
 import { getMarketTime } from "@/lib/market-time";
 import { collectionsForListing } from "@/lib/saved-work";
-import { ActionForm } from "@/components/action-form";
 import { addToCollectionAction, removeFromCollectionAction } from "../../saved-work-actions";
 import type { StandardStatus } from "@/lib/lookups";
 import { isTerminal } from "@/lib/rules/status";
 import { requireMember } from "@/lib/session";
+import { ActionForm } from "@/components/action-form";
+import { ShareSection } from "@/components/share-section";
+import { isClientCopyStatus } from "@/lib/rules/client-copy";
+
 
 const NOTICES: Record<string, string> = {
   created: "Listing created.",
@@ -236,6 +239,16 @@ export default async function ListingPage({
         )}
         <p className="mt-2 text-xs text-muted">Only you can see which collections a listing is in.</p>
       </section>
+
+      <ShareSection
+        viewer={current}
+        target={{ listing: listing.ListingKey }}
+        refusal={
+          isClientCopyStatus(listing.StandardStatus)
+            ? undefined
+            : `A ${listing.StandardStatus} listing cannot be shared with a client.`
+        }
+      />
 
       {showingVisible && (
         <section className="card" aria-labelledby="showing-heading" data-testid="showing">

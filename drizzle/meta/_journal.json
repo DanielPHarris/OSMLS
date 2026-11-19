@@ -64,6 +64,13 @@
       "when": 1795117860159,
       "tag": "0008_saved_search_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795129649728,
+      "tag": "0009_sharing_and_alerts",
+      "breakpoints": true
     }
   ]
 }

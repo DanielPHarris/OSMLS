@@ -176,6 +176,14 @@ export async function updateSavedSearchCriteria(viewer: Viewer, key: unknown, cr
         // Earlier activity was measured against other criteria, so it starts again.
         OsmlsActivitySeenThrough: LATEST_HISTORY_SEQUENCE,
         OsmlsActivitySeenAt: new Date(),
+        // The same goes for email alerts: the checkpoint, the schedule, and any
+        // pause start again, and a send already under way must not undo this.
+        OsmlsAlertSentThrough: LATEST_HISTORY_SEQUENCE,
+        OsmlsAlertLastSentAt: new Date(),
+        OsmlsAlertAttempts: 0,
+        OsmlsAlertFailures: 0,
+        OsmlsAlertPaused: null,
+        OsmlsAlertGeneration: sql`${savedSearch.OsmlsAlertGeneration} + 1`,
       })
       .where(eq(savedSearch.SavedSearchKey, key as string))
       .returning();

@@ -218,7 +218,7 @@ const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
  * What a reader must be told about anything left out. Empty when the report is
  * whole. A total is stated only when it was counted.
  */
-export function disclosureLines(report: Report): string[] {
+export function disclosureLines(report: Pick<Report, "kind" | "disclosure">): string[] {
   const { eligible, shown, totalIsExact, omittedForStatus } = report.disclosure;
   const lines: string[] = [];
   if (report.kind === "listing") {

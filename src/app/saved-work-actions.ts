@@ -16,6 +16,7 @@ import {
   updateSavedSearchCriteria,
 } from "@/lib/saved-work";
 import { markActivitySeen } from "@/lib/activity";
+import { resumeAlert, setAlertFrequency } from "@/lib/alerts";
 import { criteriaFromParams, criteriaToParams } from "@/lib/search-criteria";
 import { getCurrentMember } from "@/lib/session";
 
@@ -110,6 +111,30 @@ export async function markActivitySeenAction(key: string, through: number): Prom
   }
   revalidatePath("/", "layout");
   return { ok: true, message: "Marked as seen." };
+}
+
+/** Switches a saved search's email alert on, off, or to another frequency. */
+export async function setAlertAction(key: string, _previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await viewer();
+  const value = formData.get("frequency");
+  try {
+    await setAlertFrequency(current, key, value);
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: value === "off" ? "Email alerts are off." : "Email alerts saved. Only activity from now on is emailed." };
+}
+
+export async function resumeAlertAction(key: string): Promise<FormState> {
+  const current = await viewer();
+  try {
+    await resumeAlert(current, key);
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Email alerts resumed." };
 }
 
 export async function createCollectionAction(_previous: FormState, formData: FormData): Promise<FormState> {
