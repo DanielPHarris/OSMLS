@@ -207,6 +207,13 @@ How the count works with the defaults:
   tested: it must have ended Canceled, Expired, or Withdrawn, and the new listing
   must have been entered fewer than 30 days after it ended. If it fails, the chain
   stops there. **A sale always breaks the chain.**
+- The 30 days run from the date the earlier listing reached its final status. For a
+  listing that went Pending and was canceled weeks later, that is the cancellation,
+  not the day it stopped accumulating days.
+- If a new listing is entered before the earlier one has ended, it continues the
+  earlier one, and the days when both were on the market are counted in both, so
+  they appear twice in CDOM. Nothing is subtracted. This is a deliberate default.
+  An earlier listing that is still open is never continued.
 - Two listings are the same property if their parcel number, county, and state all
   match, or, when either lacks a parcel number or county, if their street number,
   street name, city, state, and ZIP code match exactly. Unit numbers must agree
@@ -234,10 +241,13 @@ and no adjustments are made between properties.
 - Matching depends on what was typed. A wrong parcel number, county, or unit can
   link unrelated listings or miss a real relisting, and staff can correct that
   only by correcting those fields. There is no tool to link or unlink by hand.
-- If a new listing is entered before the earlier one has ended, their days can
-  overlap and be counted in both.
+- Overlapping listings of one property count their shared days twice, as described
+  above. Two open listings of one property should be rare; an MLS that has them
+  will want its own rule, and there is no setting for it.
 - Sorting by days on market works on the listing's own DOM, not CDOM.
-- Comparables use distance in a straight line between map pins.
+- Comparables use distance in a straight line between map pins. A comparable with
+  no pin, found by ZIP code, shows no distance and is listed after those that have
+  one.
 
 ### Not yet built
 

@@ -163,6 +163,40 @@ describe("days on market: the worked examples, with the default settings", () =>
   });
 });
 
+describe("listings of one property that overlap", () => {
+  it("O. a relisting entered before the earlier listing ended continues it, and the shared days count in both", async () => {
+    const parcel = newParcel();
+    // Listing 1 runs March 1 to April 10 (DOM 40). Listing 2 is entered March 31, ten days before that.
+    const first = await listing([["Active", "2026-03-01"], ["Canceled", "2026-04-10"]], { parcel });
+    const second = await listing([["Active", "2026-03-31"]], { parcel });
+    // On April 20 the second has 20 days of its own. The ten days both were active are in both figures.
+    expect(await marketTime(second.ListingKey, "2026-04-20")).toEqual({ dom: 20, cdom: 60 });
+    // The earlier listing is unaffected: nothing precedes it.
+    expect(await marketTime(first.ListingKey, "2026-04-20")).toEqual({ dom: 40, cdom: 40 });
+  });
+
+  it("does not continue an earlier listing that is still open", async () => {
+    const parcel = newParcel();
+    await listing([["Active", "2026-03-01"]], { parcel });
+    const second = await listing([["Active", "2026-03-31"]], { parcel });
+    expect(await marketTime(second.ListingKey, "2026-04-20")).toEqual({ dom: 20, cdom: 20 });
+  });
+
+  it("P. measures the gap from the date the earlier listing reached its final status", async () => {
+    const [long, short] = [newParcel(), newParcel()];
+    // Pending for 40 days, then canceled. The count stopped on March 11, but the listing ended April 20.
+    await listing([["Active", "2026-03-01"], ["Pending", "2026-03-11"], ["Canceled", "2026-04-20"]], { parcel: long });
+    const soonAfter = await listing([["Active", "2026-04-25"]], { parcel: long });
+    // Five days after the cancellation, though 45 after it stopped accumulating: it continues.
+    expect(await marketTime(soonAfter.ListingKey, "2026-04-30")).toEqual({ dom: 5, cdom: 15 });
+
+    await listing([["Active", "2026-03-01"], ["Pending", "2026-03-11"], ["Canceled", "2026-03-12"]], { parcel: short });
+    const muchLater = await listing([["Active", "2026-04-25"]], { parcel: short });
+    // 44 days after the cancellation: it starts again.
+    expect(await marketTime(muchLater.ListingKey, "2026-04-30")).toEqual({ dom: 5, cdom: 5 });
+  });
+});
+
 describe("each setting changes the calculation", () => {
   it("statuses that accumulate days: without Active Under Contract, example C is 10 days", async () => {
     const l = await listing([

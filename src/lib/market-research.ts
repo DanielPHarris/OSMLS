@@ -121,13 +121,21 @@ export function summarizeComparables(comparables: readonly Comparable[]) {
   };
 }
 
-/** Great-circle distance in miles between a listing's pin and a fixed point. */
-const milesFrom = (latitude: number, longitude: number) => sql<number>`(
-  3958.8 * 2 * asin(least(1, sqrt(
+/**
+ * Great-circle distance in miles between a listing's pin and a fixed point, or
+ * NULL when the listing has no pin.
+ *
+ * The NULL has to be explicit. least() skips NULL arguments, so without the
+ * CASE a listing with no coordinates would come out at asin(1): half the
+ * world away, shown as a real distance.
+ */
+const milesFrom = (latitude: number, longitude: number) => sql<number | null>`(
+  case when ${property.Latitude} is null or ${property.Longitude} is null then null
+  else 3958.8 * 2 * asin(least(1, sqrt(
     power(sin(radians(${property.Latitude} - ${latitude}) / 2), 2) +
     cos(radians(${latitude})) * cos(radians(${property.Latitude})) *
     power(sin(radians(${property.Longitude} - ${longitude}) / 2), 2)
-  ))))`;
+  ))) end)`;
 
 export async function findComparables(
   subject: Property,
@@ -141,6 +149,7 @@ export async function findComparables(
   if (criteria.area === "radius" && !hasPin) return [];
 
   const earliestClose = localDate(new Date(asOf.getTime() - criteria.closedWithinDays * 86_400_000));
+  // Unknown when either end has no pin.
   const distance = hasPin ? milesFrom(subject.Latitude!, subject.Longitude!) : sql<number | null>`null`;
   const conditions = [
     // Never the subject itself.

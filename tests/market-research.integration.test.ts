@@ -167,6 +167,26 @@ describe("comparables", () => {
     expect(JSON.stringify(found)).not.toContain("comparable-secret");
   });
 
+  it("gives no distance, not a false one, for a ZIP-code match that has no map pin", async () => {
+    // The subject is pinned; one sale in its ZIP code is pinned and one is not.
+    const zip = "97444";
+    const pin = { Latitude: "37.250000", Longitude: "-102.000000", PostalCode: zip };
+    const subject = await createListing(agent, fields(pin), { at: on("2026-06-20") });
+    const pinned = await sale({ ...pin, Latitude: "37.252000" }, "2026-03-01", "2026-03-11", "2026-04-15", "600000");
+    const unpinned = await sale({ PostalCode: zip }, "2026-03-01", "2026-03-11", "2026-05-15", "610000");
+    const subjectRow = (await getListing(subject.ListingKey, agent))!.listing;
+    const found = await findComparables(subjectRow, { ...defaultComparableCriteria(subjectRow), area: "zip" }, { asOf: AS_OF });
+
+    const distances = Object.fromEntries(found.map((c) => [c.listing.ListingKey, c.distanceMiles]));
+    expect(Object.keys(distances).sort()).toEqual([pinned.ListingKey, unpinned.ListingKey].sort());
+    expect(distances[unpinned.ListingKey]).toBeNull();
+    expect(distances[pinned.ListingKey]!).toBeGreaterThan(0.1);
+    expect(distances[pinned.ListingKey]!).toBeLessThan(0.2);
+    // Known distances come first; the unknown one is last, not sorted as if it were far away.
+    expect(found.map((c) => c.listing.ListingKey)).toEqual([pinned.ListingKey, unpinned.ListingKey]);
+    // A listing with only one coordinate cannot exist (the database refuses it), so both-missing is the only case.
+  });
+
   it("uses the ZIP code when the subject has no map location", async () => {
     const zip = { Latitude: "", Longitude: "", PostalCode: "97333" };
     const subject = await createListing(agent, fields(zip), { at: on("2026-06-20") });

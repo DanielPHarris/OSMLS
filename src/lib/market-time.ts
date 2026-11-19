@@ -113,11 +113,19 @@ export function continuesPredecessor(
   if (!(CONTINUABLE_END_STATUSES as readonly string[]).includes(predecessor.standardStatus)) return false;
   if (!predecessor.endedDate) return false;
   if (settings.brokerageChangeResets && predecessor.brokerageKey !== current.brokerageKey) return false;
-  // The gap runs from the date the predecessor reached its final status. A listing
-  // that has not yet been on the market has no on-market date, so its entry date is used.
+  // The gap starts on the date the predecessor reached its final status: for a
+  // listing that went Pending and was later canceled, the cancellation, not the day
+  // it stopped accumulating. It ends at the gap endpoint. A listing that has not yet
+  // been on the market has no on-market date, so its entry date is used.
   const endpoint =
     settings.gapEndpoint === "onMarket" ? (current.firstOnMarketDate ?? current.enteredDate) : current.enteredDate;
-  return daysBetween(predecessor.endedDate, endpoint) < settings.relistingGapDays;
+  const gap = daysBetween(predecessor.endedDate, endpoint);
+  // Overlap: the new listing was entered before the predecessor ended, so the gap
+  // is negative. By rule it still continues the predecessor. Each listing keeps its
+  // own days, so days when both were on the market are counted in both and appear
+  // twice in the cumulative figure. Nothing is subtracted for the overlap.
+  if (gap < 0) return true;
+  return gap < settings.relistingGapDays;
 }
 
 /**
