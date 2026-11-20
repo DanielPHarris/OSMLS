@@ -75,6 +75,19 @@ production-ready.**
   each page, action and alert run uses one version throughout. There are no
   custom roles, no staff limited to particular offices, and no settings that
   apply from a date.
+- Compliance flags are implemented. Any active member can flag a problem with a
+  listing; staff who hold a fifth capability, "Manage compliance", see a queue
+  and close each flag with a note. A flag changes nothing about its listing.
+  Who raised a flag is given to compliance staff only; the listing agent and
+  their office see the flag, its description and its closing note, which are
+  free text and are not redacted. Compliance staff can also say which earlier
+  listing a listing continues, or that it continues none; a named listing
+  settles only that it is the same property, the market-time settings still
+  apply, and a link is never followed past a sale. Tests cover every kind of
+  viewer, both limits under simultaneous submissions, and the overlaps that
+  could get past a suspension or a revoked capability. Nothing finds problems
+  automatically, and this is not legal compliance. One known gap from the
+  sharing work is tracked separately (issue #29).
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -161,7 +174,7 @@ Out of 0.1, planned for later releases (see section 10):
 - Saved searches, collections, email sharing, reports, alerts (since added; see
   section 10).
 - Administration screens and access suspension (since added; see section 10).
-- Compliance flags.
+- Compliance flags (since added; see section 10).
 - Imports, exports, and a RESO Web API endpoint.
 - Production operations: monitoring, backups, recovery.
 
@@ -359,7 +372,22 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    - Accumulating statuses never include Closed, Canceled, Expired or Withdrawn,
      and the relisting gap is 0 to 365 days.
 3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
-   In progress as one issue and one pull request (issue #27).
+   Done 2026-11-20 as one issue and one pull request (issue #27).
+
+   Decided by the maintainer on 2026-11-20:
+   - Any active member may flag any listing they can open, up to 20 a day by
+     calendar day in the MLS time zone.
+   - Who raised a flag is given to compliance staff only, never to the listing
+     side; the listing agent and listing office see the flag, its description,
+     and its closing note.
+   - A flag never changes, hides, or penalises a listing; a closed flag is
+     final; and there is no email about flags.
+   - "Manage compliance" is a fifth capability, given on upgrade to accounts
+     that hold "Manage staff".
+   - A link staff make by hand settles only that two listings are the same
+     property; the market-time settings still apply, and it cannot pass a sale
+     of the property.
+   - Members see the resulting figures, not that staff set them.
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
 5. Production operations: monitoring, backups, recovery. Measuring what committing
