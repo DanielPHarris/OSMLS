@@ -323,7 +323,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | --- | --- | --- |
    | 1 | Member administration and access suspension | Done 2026-11-19 (issue #20) |
    | 2 | Offices and brokerages: create, edit, deactivate, and move members between them | Done 2026-11-19 (issue #23) |
-   | 3 | Finer-grained staff permissions, and market-time settings changed without a redeployment | Not started |
+   | 3 | Finer-grained staff permissions, and market-time settings changed without a redeployment | In progress (issue #25) |
 
    Until slice 3, every active MLS staff account may administer. Members are
    suspended, never deleted, because history refers to them.
