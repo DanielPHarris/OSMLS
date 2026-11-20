@@ -320,7 +320,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | Slice | Delivers | Status |
    | --- | --- | --- |
    | 1 | Member administration and access suspension | Done 2026-11-19 (issue #20) |
-   | 2 | Offices and brokerages: create, edit, deactivate, and move members between them | Not started |
+   | 2 | Offices and brokerages: create, edit, deactivate, and move members between them | In progress (issue #23) |
    | 3 | Finer-grained staff permissions, and market-time settings changed without a redeployment | Not started |
 
    Until slice 3, every active MLS staff account may administer. Members are
