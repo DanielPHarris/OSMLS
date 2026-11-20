@@ -78,6 +78,13 @@
       "when": 1795139774346,
       "tag": "0010_office_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795203477499,
+      "tag": "0011_staff_capabilities_and_settings",
+      "breakpoints": true
     }
   ]
 }

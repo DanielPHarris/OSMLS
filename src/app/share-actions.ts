@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/app/actions";
 import { formatDate } from "@/lib/format";
-import { ListingError, localDate } from "@/lib/listings";
+import { ListingError, mlsDate } from "@/lib/listings";
 import { getCurrentMember } from "@/lib/session";
 import { createShare, revokeShare, stopEmail, type ShareTarget } from "@/lib/shares";
 
@@ -42,7 +42,7 @@ export async function shareAction(target: ShareTarget, _previous: ShareFormState
     return failure(err);
   }
   revalidatePath("/", "layout");
-  const until = formatDate(localDate(made.expires));
+  const until = formatDate(await mlsDate(made.expires));
   return {
     ok: true,
     link: made.link,

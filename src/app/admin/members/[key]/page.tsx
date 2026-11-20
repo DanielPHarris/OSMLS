@@ -2,11 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { PasswordLinkButton } from "@/components/password-link-button";
+import { can } from "@/lib/access";
 import { fieldLabel, formatDateTime } from "@/lib/format";
+import { CAPABILITIES, CAPABILITY_LABELS } from "@/lib/lookups";
 import { getMemberForAdmin, getMemberHistory, listOffices } from "@/lib/members";
 import { PASSWORD_LINK_HOURS } from "@/lib/rules/local";
 import { requireMember } from "@/lib/session";
-import { changeMemberEmailAction, moveMemberAction, sendPasswordLinkAction, setMemberStatusAction, updateMemberAction } from "../../../admin-actions";
+import { changeMemberEmailAction, moveMemberAction, sendPasswordLinkAction, setCapabilitiesAction, setMemberStatusAction, updateMemberAction } from "../../../admin-actions";
 
 export default async function MemberPage({ params }: { params: Promise<{ key: string }> }) {
   const current = await requireMember();
@@ -121,6 +123,34 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
               <textarea name="reason" required maxLength={500} rows={2} className="field w-full" />
             </label>
             <button className="btn">Move agent</button>
+          </ActionForm>
+        </section>
+      )}
+
+      {m.OsmlsRole === "staff" && can(current, "staff") && (
+        <section className="card space-y-3" aria-labelledby="capabilities-heading" data-testid="member-capabilities">
+          <h2 id="capabilities-heading" className="text-base font-semibold">
+            Capabilities
+          </h2>
+          <p className="text-sm text-muted">
+            What this staff account may administer. A change applies from their next action, including in a session
+            already open. Capabilities do not change what staff may do to listings and documents.
+            {!active && " This account is suspended, so its capabilities allow nothing until it is reinstated."}
+          </p>
+          <ActionForm action={setCapabilitiesAction.bind(null, m.MemberKey)} className="space-y-3">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              {CAPABILITIES.map((capability) => (
+                <label key={capability} className="flex items-center gap-1">
+                  <input type="checkbox" name="capability" value={capability} defaultChecked={m.OsmlsCapabilities.includes(capability)} />
+                  {CAPABILITY_LABELS[capability]}
+                </label>
+              ))}
+            </div>
+            <label className="label block">
+              Reason for the change
+              <textarea name="reason" required maxLength={500} rows={2} className="field w-full" />
+            </label>
+            <button className="btn">Save capabilities</button>
           </ActionForm>
         </section>
       )}

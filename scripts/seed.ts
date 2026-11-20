@@ -8,7 +8,9 @@ import { db, pool } from "../src/db";
 import { member, office, user } from "../src/db/schema";
 import { createAuth } from "../src/lib/auth";
 import { createListing, localDate, updateListing, type Actor } from "../src/lib/listings";
+import { latestSettings } from "../src/lib/market-time";
 import type { ListingInput } from "../src/lib/listing-input";
+import { CAPABILITIES } from "../src/lib/lookups";
 
 const password = process.env.DEMO_PASSWORD;
 if (!password) throw new Error("DEMO_PASSWORD is not set. Copy .env.example to .env.");
@@ -65,6 +67,8 @@ for (const p of people) {
       MemberDirectPhone: "555-0199",
       OfficeKey: p.office?.OfficeKey ?? null,
       OsmlsRole: p.role,
+      // As after an upgrade: every staff account starts with all of them.
+      OsmlsCapabilities: p.role === "staff" ? [...CAPABILITIES] : [],
       MemberStatus: "status" in p ? p.status : "Active",
       OsmlsUserId: u.id,
     })
@@ -98,7 +102,8 @@ const remarks = [
 // Demo listings need a past: sales to research, days on market to count. The
 // seed gives each change a time, which only the seed and tests are able to do.
 const ago = (days: number) => new Date(Date.now() - days * 86_400_000);
-const dateAgo = (days: number) => localDate(ago(days));
+const { timeZone } = await latestSettings();
+const dateAgo = (days: number) => localDate(ago(days), timeZone);
 
 type Change = { daysAgo: number; set: Partial<ListingInput> };
 let listingCount = 0;

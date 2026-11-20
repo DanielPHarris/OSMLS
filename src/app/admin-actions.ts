@@ -4,9 +4,10 @@ import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/app/actions";
 import { ListingError } from "@/lib/listings";
-import { changeMemberEmail, createMember, moveMember, sendPasswordLink, setMemberStatus, setPasswordWithLink, updateMember } from "@/lib/members";
+import { changeMemberEmail, createMember, moveMember, sendPasswordLink, setCapabilities, setMemberStatus, setPasswordWithLink, updateMember } from "@/lib/members";
 import { createOffice, setMainOffice, setOfficeStatus, updateOffice } from "@/lib/offices";
 import { getCurrentMember } from "@/lib/session";
+import { saveMarketTimeSettings } from "@/lib/settings";
 
 /*
  * Every action asks who is signed in and hands that to src/lib/members.ts,
@@ -109,6 +110,42 @@ export async function moveMemberAction(key: string, _previous: FormState, formDa
   }
   revalidatePath("/", "layout");
   return { ok: true, message: "Moved. Their listings keep the office recorded on them." };
+}
+
+export async function setCapabilitiesAction(key: string, _previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await getCurrentMember();
+  try {
+    await setCapabilities(current, key, formData.getAll("capability"), formData.get("reason"));
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Capabilities saved. They apply from this member's next action." };
+}
+
+export async function saveSettingsAction(basedOn: number, _previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await getCurrentMember();
+  try {
+    await saveMarketTimeSettings(
+      current,
+      {
+        accumulatingStatuses: formData.getAll("accumulatingStatuses"),
+        relistingGapDays: formData.get("relistingGapDays"),
+        brokerageChangeResets: formData.get("brokerageChangeResets") != null,
+        addressFallback: formData.get("addressFallback") != null,
+        gapEndpoint: formData.get("gapEndpoint"),
+        timeZone: formData.get("timeZone"),
+      },
+      basedOn,
+      formData.get("reason"),
+    );
+  } catch (err) {
+    return failure(err);
+  } finally {
+    // Also after a refusal: a save refused as out of date must show the current values.
+    revalidatePath("/", "layout");
+  }
+  return { ok: true, message: "Settings saved. Every figure is now worked out with them." };
 }
 
 export async function createOfficeAction(_previous: FormState, formData: FormData): Promise<FormState> {

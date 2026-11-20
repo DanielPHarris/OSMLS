@@ -16,8 +16,7 @@ import { canViewDocument, canViewShowing, type Viewer } from "./access";
 import { parseListingInput, type FieldErrors, type ListingInput } from "./listing-input";
 import type { StandardStatus } from "./lookups";
 import { MAX_PHOTO_BYTES, MAX_PHOTOS_PER_LISTING, MAX_SEARCH_RESULTS } from "./rules/local";
-import { getMarketTime, marketFactsSql, type MarketTime } from "./market-time";
-import { MARKET_TIME_SETTINGS } from "./rules/market-time";
+import { currentSettings, getMarketTime, marketFactsSql, type MarketTime } from "./market-time";
 import { isCalendarDate, isOwnKey } from "./validation";
 import { INITIAL_STATUSES, canTransition, changeTypeForStatus, isTerminal } from "./rules/status";
 
@@ -90,10 +89,13 @@ function unparsedAddress(v: ListingInput): string {
   return `${v.StreetNumber} ${v.StreetName}${unit}, ${v.City}, ${v.StateOrProvince} ${v.PostalCode}`;
 }
 
-/** The calendar date of a moment in the MLS's time zone, as YYYY-MM-DD. */
-export function localDate(at: Date, timeZone: string = MARKET_TIME_SETTINGS.timeZone): string {
+/** The calendar date of a moment in a time zone, as YYYY-MM-DD. */
+export function localDate(at: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
 }
+
+/** The calendar date of a moment in the MLS's time zone, which is one of the market-time settings. */
+export const mlsDate = async (at: Date): Promise<string> => localDate(at, (await currentSettings()).timeZone);
 
 /**
  * When a change is taken to have happened. Normally now. The seed script and
@@ -156,6 +158,8 @@ export async function createListing(
     throw new ListingError("Some fields need attention.", {
       StandardStatus: `A new listing must start as ${INITIAL_STATUSES.join(" or ")}.`,
     });
+  // Read before the transaction, so the transaction never waits for a second connection.
+  const today = await mlsDate(now);
 
   return db.transaction(async (tx) => {
     const [created] = await tx
@@ -164,7 +168,7 @@ export async function createListing(
         ...input,
         OriginalListPrice: input.ListPrice,
         UnparsedAddress: unparsedAddress(input),
-        OnMarketDate: input.StandardStatus === "Active" ? localDate(now) : null,
+        OnMarketDate: input.StandardStatus === "Active" ? today : null,
         ListAgentKey: actor.MemberKey,
         ListOfficeKey: actor.OfficeKey!,
         OriginalEntryTimestamp: now,
@@ -200,6 +204,7 @@ export async function updateListing(
   when: ChangeTime = {},
 ): Promise<{ listing: Property; changedFields: string[] }> {
   const input = validated(raw);
+  const settings = await currentSettings();
 
   return db.transaction(async (tx) => {
     const current = await lockListing(tx, listingKey);
@@ -224,7 +229,7 @@ export async function updateListing(
       .set({
         ...input,
         UnparsedAddress: unparsedAddress(input),
-        OnMarketDate: current.OnMarketDate ?? (to === "Active" ? localDate(now) : null),
+        OnMarketDate: current.OnMarketDate ?? (to === "Active" ? localDate(now, settings.timeZone) : null),
         ModificationTimestamp: now,
         ...(statusChanged ? { StatusChangeTimestamp: now } : {}),
         ...(priceChanged ? { PriceChangeTimestamp: now } : {}),
@@ -446,6 +451,7 @@ export async function searchListings(filters: SearchFilters, options: { asOf?: D
   const f = filters;
   // One moment for the whole search, so the order and the figures shown agree.
   const asOf = options.asOf ?? new Date();
+  const settings = await currentSettings();
   const fieldFilters = fieldConditions(f);
   const inArea = areaCondition(f);
 
@@ -475,7 +481,7 @@ export async function searchListings(filters: SearchFilters, options: { asOf?: D
     .from(property)
     .innerJoin(member, eq(member.MemberKey, property.ListAgentKey))
     .innerJoin(office, eq(office.OfficeKey, property.ListOfficeKey))
-    .leftJoin(sql`(${marketFactsSql(asOf)}) as mf`, sql`mf.key = ${property.ListingKey}`)
+    .leftJoin(sql`(${marketFactsSql(asOf, settings)}) as mf`, sql`mf.key = ${property.ListingKey}`)
     .where(and(fieldFilters, inArea))
     .orderBy(...order)
     .limit(MAX_SEARCH_RESULTS + 1);
@@ -489,7 +495,7 @@ export async function searchListings(filters: SearchFilters, options: { asOf?: D
   const shown = rows.slice(0, MAX_SEARCH_RESULTS);
   const marketTime = await getMarketTime(
     shown.map((row) => row.listing.ListingKey),
-    { asOf },
+    { asOf, settings },
   );
   const noMarketTime: MarketTime = {
     daysOnMarket: 0,

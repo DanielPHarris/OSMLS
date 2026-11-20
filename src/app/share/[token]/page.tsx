@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ReportListing } from "@/components/report-view";
 import { formatDate } from "@/lib/format";
-import { localDate } from "@/lib/listings";
+import { mlsDate } from "@/lib/listings";
 import { getSharedPage } from "@/lib/shares";
 
 /*
@@ -51,7 +51,7 @@ export default async function SharedPage({ params }: { params: Promise<{ token: 
       )}
       <p className="text-xs text-muted">
         Information is believed to be reliable but is not guaranteed. Listings are shown as they are today. This link
-        works until {formatDate(localDate(page.expires))}.
+        works until {formatDate(await mlsDate(page.expires))}.
       </p>
     </div>
   );

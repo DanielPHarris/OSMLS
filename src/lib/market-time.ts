@@ -1,5 +1,9 @@
-import { sql, type SQL } from "drizzle-orm";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { desc, sql, type SQL } from "drizzle-orm";
+import { cache } from "react";
 import { db } from "../db";
+import { marketTimeSettings, type MarketTimeSettingsRow } from "../db/schema";
+import type { StandardStatus } from "./lookups";
 import {
   CONTINUABLE_END_STATUSES,
   MARKET_TIME_SETTINGS,
@@ -11,8 +15,47 @@ import {
  *
  * Nothing here is stored. DOM is worked out in the database from a listing's
  * status history, and CDOM by following the chain of earlier listings it
- * continues. Policy comes only from MarketTimeSettings.
+ * continues. Policy comes only from MarketTimeSettings, and the settings come
+ * only from the database (currentSettings): nothing here falls back to the
+ * values in src/lib/rules/market-time.ts, which are only what a new
+ * installation starts with.
  */
+
+/** One stored version of the settings. */
+export type SettingsVersion = MarketTimeSettings & { version: number };
+
+export const toSettings = (row: MarketTimeSettingsRow): SettingsVersion => ({
+  version: row.Version,
+  accumulatingStatuses: row.AccumulatingStatuses as StandardStatus[],
+  relistingGapDays: row.RelistingGapDays,
+  brokerageChangeResets: row.BrokerageChangeResets,
+  addressFallback: row.AddressFallback,
+  gapEndpoint: row.GapEndpoint as MarketTimeSettings["gapEndpoint"],
+  timeZone: row.TimeZone,
+});
+
+/** The newest version, read now. Screens that change the settings use this; everything else uses currentSettings. */
+export async function latestSettings(): Promise<SettingsVersion> {
+  const [row] = await db.select().from(marketTimeSettings).orderBy(desc(marketTimeSettings.Version)).limit(1);
+  if (!row) throw new Error("There are no market-time settings. Run the database migrations.");
+  return toSettings(row);
+}
+
+const forThisRequest = cache(latestSettings);
+const held = new AsyncLocalStorage<SettingsVersion>();
+
+/**
+ * The settings for the operation in progress. One version serves the whole of
+ * it: a page or action reads the settings once however many figures it works
+ * out, and background work runs inside withOneSettingsVersion. A change saved
+ * meanwhile applies from the next operation.
+ */
+export const currentSettings = async (): Promise<SettingsVersion> => held.getStore() ?? forThisRequest();
+
+/** Runs work that is not a page or action (the alert run) under one version of the settings. */
+export async function withOneSettingsVersion<T>(work: () => Promise<T>): Promise<T> {
+  return held.run(await latestSettings(), work);
+}
 
 /** What is known about one listing for the purpose of counting market time. */
 export type MarketFacts = {
@@ -156,7 +199,7 @@ export function choosePredecessor<T extends Identity & { listingKey: string; ent
  * stopped, from its status history. This query is the only place DOM is
  * calculated, so searching, sorting, and display cannot disagree.
  */
-export function marketFactsSql(asOf: Date, settings: MarketTimeSettings = MARKET_TIME_SETTINGS): SQL {
+export function marketFactsSql(asOf: Date, settings: MarketTimeSettings): SQL {
   const accumulating = sql.join(
     settings.accumulatingStatuses.map((s) => sql`${s}`),
     sql`, `,
@@ -233,7 +276,7 @@ export async function getMarketTime(
   options: { asOf?: Date; settings?: MarketTimeSettings } = {},
 ): Promise<Map<string, MarketTime>> {
   const asOf = options.asOf ?? new Date();
-  const settings = options.settings ?? MARKET_TIME_SETTINGS;
+  const settings = options.settings ?? (await currentSettings());
   const keys = [...new Set(listingKeys)].filter((k) => /^[0-9a-f-]{36}$/i.test(k));
   const out = new Map<string, MarketTime>();
   if (keys.length === 0) return out;

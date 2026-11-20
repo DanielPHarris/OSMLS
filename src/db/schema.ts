@@ -75,6 +75,8 @@ export const member = pgTable(
     // Null for MLS staff.
     OfficeKey: uuid().references(() => office.OfficeKey),
     OsmlsRole: text().notNull(),
+    // What a staff account may administer (CAPABILITIES). Counts only while the account is active staff.
+    OsmlsCapabilities: text().array().notNull().default(sql`'{}'::text[]`),
     OsmlsUserId: text()
       .notNull()
       .unique()
@@ -85,6 +87,30 @@ export const member = pgTable(
     check("Member_MemberStatus_valid", sql.raw(`"MemberStatus" IN (${sqlList(MEMBER_STATUSES)})`)),
     check("Member_OsmlsRole_valid", sql.raw(`"OsmlsRole" IN (${sqlList(ROLES)})`)),
   ],
+);
+
+/*
+ * The market-time settings. Every change adds a row and none is ever altered,
+ * so this is both the settings and their history: the highest Version is in
+ * force. A save names the version it follows, so of two saves made from the
+ * same version only one can be stored.
+ */
+export const marketTimeSettings = pgTable(
+  "OsmlsMarketTimeSettings",
+  {
+    Version: integer().primaryKey(),
+    AccumulatingStatuses: text().array().notNull(),
+    RelistingGapDays: integer().notNull(),
+    BrokerageChangeResets: boolean().notNull(),
+    AddressFallback: boolean().notNull(),
+    GapEndpoint: text().notNull(),
+    TimeZone: text().notNull(),
+    // Null only for the first version, which the installation makes.
+    ChangedByMemberKey: uuid().references(() => member.MemberKey),
+    Reason: text(),
+    ModificationTimestamp: timestamptz().notNull().defaultNow(),
+  },
+  () => [check("OsmlsMarketTimeSettings_GapEndpoint_valid", sql.raw(`"GapEndpoint" IN ('entered', 'onMarket')`))],
 );
 
 export const listingIdSeq = pgSequence("listing_id_seq", { startWith: 1000001 });
@@ -454,3 +480,4 @@ export type HistoryRow = typeof historyTransactional.$inferSelect;
 export type SavedSearch = typeof savedSearch.$inferSelect;
 export type Collection = typeof collection.$inferSelect;
 export type Share = typeof share.$inferSelect;
+export type MarketTimeSettingsRow = typeof marketTimeSettings.$inferSelect;
