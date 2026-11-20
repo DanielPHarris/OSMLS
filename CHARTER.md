@@ -391,6 +391,14 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    - Members see the resulting figures, not that staff set them.
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
+   In progress. Proposed, and not yet accepted by the maintainer, as one phase
+   in three slices, complete only when all three are:
+
+   | Slice | Delivers | Status |
+   | --- | --- | --- |
+   | 1 | A read-only RESO Web API endpoint with bearer tokens, and RESO's certification tool run against it | In progress (issue #31) |
+   | 2 | Controlled distribution: more than one kind of feed, and file export of search results | Not started |
+   | 3 | Imports through the same validation and history as hand entry | Not started |
 5. Production operations: monitoring, backups, recovery. Measuring what committing
    listing changes one at a time costs under load belongs here.
 
