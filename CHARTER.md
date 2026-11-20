@@ -306,8 +306,18 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    the member who owns the saved search, and email to clients is manual sharing.
    Scheduled email to clients is deferred and has no place in the order below
    yet.
-2. Administration screens and access suspension. Finer-grained staff permissions
-   belong here, as would changing market-time settings without a redeployment.
+2. Administration screens and access suspension. Planned on 2026-11-19 as one
+   phase in three slices, each with its own issue and pull request. The phase is
+   complete only when all three are.
+
+   | Slice | Delivers | Status |
+   | --- | --- | --- |
+   | 1 | Member administration and access suspension | In progress (issue #20) |
+   | 2 | Offices and brokerages: create, edit, deactivate, and move members between them | Not started |
+   | 3 | Finer-grained staff permissions, and market-time settings changed without a redeployment | Not started |
+
+   Until slice 3, every active MLS staff account may administer. Members are
+   suspended, never deleted, because history refers to them.
 3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
