@@ -114,7 +114,10 @@ export async function createShare(
   const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   const created = await db.transaction(async (tx) => {
     // The member's row is locked first, so overlapping requests are counted in turn.
-    await tx.select({ key: member.MemberKey }).from(member).where(eq(member.MemberKey, viewer.MemberKey)).for("update");
+    // Their status is read from that locked row, not taken from the request: one
+    // suspended while this was waiting makes no link, and so nothing is emailed.
+    const [self] = await tx.select().from(member).where(eq(member.MemberKey, viewer.MemberKey)).for("update");
+    if (!isActive(self ?? null)) throw notFound;
     const count = async (...conditions: Parameters<typeof and>) =>
       (await tx.select({ n: sql<number>`count(*)::int` }).from(share).where(and(eq(share.MemberKey, viewer.MemberKey), ...conditions)))[0].n;
     if ((await count(working)) >= MAX_ACTIVE_SHARES_PER_MEMBER) {
