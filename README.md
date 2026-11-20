@@ -498,7 +498,9 @@ permissions, are the other two slices and are not built.
   shown once to the staff member to pass on. There is no self-service "forgot
   password".
 - **Changing an email** changes the sign-in address with it, and ends any password
-  link already sent, since that went to the old address.
+  link already sent, since that went to the old address. Making a link and changing
+  an email are taken one at a time for each member, so a link is always for the
+  address the member has when it is made, and only the newest link works.
 - **Role and office.** Making a member an agent needs an office; making one MLS
   staff removes it. Moving an agent between offices is not available yet. A
   listing keeps the office recorded on it whatever happens to its agent.

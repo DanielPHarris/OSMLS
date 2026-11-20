@@ -117,15 +117,36 @@ export type PasswordLink = {
 /**
  * Makes a one-time link for a member to set their password, ending any earlier
  * one, and emails it. With email off, the link comes back to be passed on.
+ *
+ * Making the link is one protected step per member: the member's row is locked,
+ * their identity is read as it is at that moment, the earlier link is ended, and
+ * the new one is stored, before anything else may issue a link for them or
+ * change their email. So a link is always for the address the member has when
+ * it is made, and only the newest link works. The email is sent after that
+ * step, to the address read inside it.
+ *
+ * `inside` runs within the step, for a check or a record that must go with it.
  */
-async function issuePasswordLink(target: Member, why: "welcome" | "reset"): Promise<PasswordLink> {
+async function issuePasswordLink(
+  memberKey: string,
+  why: "welcome" | "reset",
+  inside?: (tx: Tx, target: Member) => Promise<void>,
+): Promise<PasswordLink> {
   const token = randomBytes(32).toString("base64url");
-  // A member has one working link at most: the newest.
-  await db.delete(verification).where(eq(verification.value, target.OsmlsUserId));
-  await (await auth.$context).internalAdapter.createVerificationValue({
-    value: target.OsmlsUserId,
-    identifier: `reset-password:${token}`,
-    expiresAt: new Date(Date.now() + PASSWORD_LINK_HOURS * 60 * 60 * 1000),
+  const target = await db.transaction(async (tx) => {
+    const [row] = await tx.select().from(member).where(eq(member.MemberKey, memberKey)).for("update");
+    if (!row) throw notFound();
+    await inside?.(tx, row);
+    // The sign-in library stores the link on a connection of its own, so both
+    // writes are made outside this transaction while it holds the member's lock.
+    // If the step fails between them, the member is left with no link, never two.
+    await db.delete(verification).where(eq(verification.value, row.OsmlsUserId));
+    await (await auth.$context).internalAdapter.createVerificationValue({
+      value: row.OsmlsUserId,
+      identifier: `reset-password:${token}`,
+      expiresAt: new Date(Date.now() + PASSWORD_LINK_HOURS * 60 * 60 * 1000),
+    });
+    return row;
   });
   const link = `${appUrl()}/set-password/${token}`;
   if (!mailEnabled()) return { emailedTo: null, link };
@@ -184,7 +205,7 @@ export async function createMember(actor: Member | null, input: unknown): Promis
   } catch (err) {
     translateDuplicate(err);
   }
-  return { member: created, passwordLink: await issuePasswordLink(created, "welcome") };
+  return { member: created, passwordLink: await issuePasswordLink(created.MemberKey, "welcome") };
 }
 
 export type MemberFilters = { q?: string; role?: string; status?: string; office?: string };
@@ -303,14 +324,10 @@ export async function changeMemberEmail(actor: Member | null, key: unknown, inpu
  */
 export async function sendPasswordLink(actor: Member | null, key: unknown): Promise<PasswordLink> {
   if (!canAdminister(actor) || !isKey(key)) throw notFound();
-  const target = await db.transaction(async (tx) => {
+  return issuePasswordLink(key, "reset", async (tx, target) => {
     const by = await actingStaff(tx, actor);
-    const [row] = await tx.select().from(member).where(eq(member.MemberKey, key));
-    if (!row) throw notFound();
-    await record(tx, by, row, [{ field: "Password", previous: null, next: null, type: "Password Link Sent" }]);
-    return row;
+    await record(tx, by, target, [{ field: "Password", previous: null, next: null, type: "Password Link Sent" }]);
   });
-  return issuePasswordLink(target, "reset");
 }
 
 export async function getMemberForAdmin(actor: Member | null, key: unknown) {

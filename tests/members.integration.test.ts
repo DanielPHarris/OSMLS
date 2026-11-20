@@ -8,7 +8,7 @@
  * to the caller as it would to staff on a system without email.
  */
 import { and, eq, inArray, like } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { db, pool } from "../src/db";
 import { account, historyTransactional, member, office, property, savedSearch, session, share, user, verification, type Member } from "../src/db/schema";
 import { resumeAlert, sendDueAlerts, setAlertFrequency } from "../src/lib/alerts";
@@ -216,6 +216,80 @@ describe("password links", () => {
     } finally {
       delete process.env.SMTP_URL;
     }
+  });
+});
+
+describe("password links made while something else is changing the account", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Holds the next link at the moment it is about to be stored, until released. */
+  async function pauseNextLink() {
+    const adapter = (await auth.$context).internalAdapter;
+    const store = adapter.createVerificationValue.bind(adapter);
+    let release!: () => void;
+    let reached!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const paused = new Promise<void>((resolve) => (reached = resolve));
+    vi.spyOn(adapter, "createVerificationValue").mockImplementationOnce(async (...args: Parameters<typeof store>) => {
+      reached();
+      await gate;
+      return store(...args);
+    });
+    return { paused, release };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
+  const links = async (m: Member) => (await db.select().from(verification).where(eq(verification.value, m.OsmlsUserId))).length;
+  const works = async (token: string, password: string) =>
+    setPasswordWithLink(token, password).then(() => true, () => false);
+
+  it("does not leave a working link for the old address when a reset overlaps an email change", async () => {
+    const { member: made } = await add();
+    const next = `overlap-${run}-${++serial}@osmls.example`;
+    const hold = await pauseNextLink();
+    const reset = sendPasswordLink(staff, made.MemberKey);
+    await hold.paused;
+    // The email change is asked for while the reset's link is still being made.
+    const change = changeMemberEmail(staff, made.MemberKey, next);
+    await settle();
+    hold.release();
+    const [link] = await Promise.all([reset, change]);
+    expect((await fresh(made)).MemberEmail).toBe(next);
+    // The reset's link belonged to the old address: it must not set the password.
+    expect(await works(tokenOf(link), "made-for-old-address")).toBe(false);
+    expect(await passwordHash(made)).toBeNull();
+    expect(await links(made)).toBe(0);
+  });
+
+  it("leaves only the newer link working when two resets overlap", async () => {
+    const { member: made } = await add();
+    const hold = await pauseNextLink();
+    const first = sendPasswordLink(staff, made.MemberKey);
+    await hold.paused;
+    const second = sendPasswordLink(staff, made.MemberKey);
+    await settle();
+    hold.release();
+    const [one, two] = await Promise.all([first, second]);
+    expect(await links(made)).toBe(1);
+    expect(tokenOf(one)).not.toBe(tokenOf(two));
+    // The second was issued after the first, so it is the one that remains.
+    expect(await works(tokenOf(one), "the-first-of-two-pw")).toBe(false);
+    expect(await works(tokenOf(two), "the-second-of-two-pw")).toBe(true);
+  });
+
+  it("leaves only the newer link working when a reset overlaps a new member's welcome link", async () => {
+    const values = input();
+    const hold = await pauseNextLink();
+    const adding = createMember(staff, values);
+    await hold.paused;
+    // The member exists by now; their welcome link is still being made.
+    const [made] = await db.select().from(member).where(eq(member.MemberMlsId, values.memberId));
+    const reset = sendPasswordLink(staff, made.MemberKey);
+    await settle();
+    hold.release();
+    const [welcome, later] = await Promise.all([adding, reset]);
+    expect(await links(made)).toBe(1);
+    expect(await works(tokenOf(welcome.passwordLink), "the-welcome-link-pw")).toBe(false);
+    expect(await works(tokenOf(later), "the-reset-link-pw")).toBe(true);
   });
 });
 
