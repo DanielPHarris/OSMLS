@@ -1,0 +1,3 @@
+ALTER TABLE "Office" ADD CONSTRAINT "Office_MainOfficeKey_Office_OfficeKey_fk" FOREIGN KEY ("MainOfficeKey") REFERENCES "public"."Office"("OfficeKey") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "Office" ADD CONSTRAINT "Office_OfficeStatus_valid" CHECK ("OfficeStatus" IN ('Active', 'Inactive'));--> statement-breakpoint
+ALTER TABLE "Office" ADD CONSTRAINT "Office_not_its_own_main" CHECK ("Office"."MainOfficeKey" IS NULL OR "Office"."MainOfficeKey" <> "Office"."OfficeKey");

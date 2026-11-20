@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/app/actions";
 import { ListingError } from "@/lib/listings";
-import { changeMemberEmail, createMember, sendPasswordLink, setMemberStatus, setPasswordWithLink, updateMember } from "@/lib/members";
+import { changeMemberEmail, createMember, moveMember, sendPasswordLink, setMemberStatus, setPasswordWithLink, updateMember } from "@/lib/members";
+import { createOffice, setMainOffice, setOfficeStatus, updateOffice } from "@/lib/offices";
 import { getCurrentMember } from "@/lib/session";
 
 /*
@@ -97,6 +98,66 @@ export async function sendPasswordLinkAction(key: string): Promise<MemberFormSta
       ? `A new link was emailed to ${sent.emailedTo}. Any earlier link no longer works.`
       : "A new link was made but could not be emailed: pass it on yourself. Any earlier link no longer works.",
   };
+}
+
+export async function moveMemberAction(key: string, _previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await getCurrentMember();
+  try {
+    await moveMember(current, key, formData.get("officeKey"), formData.get("reason"));
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Moved. Their listings keep the office recorded on them." };
+}
+
+export async function createOfficeAction(_previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await getCurrentMember();
+  const values: Record<string, string> = {};
+  for (const [name, value] of formData) if (typeof value === "string") values[name] = value;
+  let made: Awaited<ReturnType<typeof createOffice>>;
+  try {
+    made = await createOffice(current, values);
+  } catch (err) {
+    return failure(err, values);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: `${made.OfficeName} was added.` };
+}
+
+export async function updateOfficeAction(key: string, _previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await getCurrentMember();
+  const values: Record<string, string> = {};
+  for (const [name, value] of formData) if (typeof value === "string") values[name] = value;
+  try {
+    await updateOffice(current, key, values);
+  } catch (err) {
+    return failure(err, values);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Saved." };
+}
+
+export async function setMainOfficeAction(key: string, _previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await getCurrentMember();
+  try {
+    await setMainOffice(current, key, formData.get("mainOfficeKey"));
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Brokerage saved." };
+}
+
+export async function setOfficeStatusAction(key: string, status: "Active" | "Inactive", _previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await getCurrentMember();
+  try {
+    await setOfficeStatus(current, key, status, formData.get("reason"));
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: status === "Inactive" ? "Office deactivated." : "Office reactivated." };
 }
 
 /** No account is involved: holding the link staff sent is what allows it. */
