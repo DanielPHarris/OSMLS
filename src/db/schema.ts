@@ -20,6 +20,8 @@ import {
 } from "drizzle-orm/pg-core";
 import {
   DOCUMENT_PERMISSIONS,
+  FLAG_CATEGORIES,
+  FLAG_STATES,
   MEDIA_CATEGORIES,
   MEMBER_STATUSES,
   OFFICE_STATUSES,
@@ -475,9 +477,69 @@ export const verification = pgTable("verification", {
 export type Office = typeof office.$inferSelect;
 export type Member = typeof member.$inferSelect;
 export type Property = typeof property.$inferSelect;
+/*
+ * A report that something about a listing may be wrong. It changes nothing
+ * about the listing. Who raised it is for compliance staff only: what the
+ * listing side is given is built without it (src/lib/compliance.ts).
+ */
+export const flag = pgTable(
+  "OsmlsFlag",
+  {
+    FlagKey: uuid().primaryKey().defaultRandom(),
+    ListingKey: uuid()
+      .notNull()
+      .references(() => property.ListingKey),
+    RaisedByMemberKey: uuid()
+      .notNull()
+      .references(() => member.MemberKey),
+    Category: text().notNull(),
+    Description: text().notNull(),
+    State: text().notNull().default("Open"),
+    RaisedTimestamp: timestamptz().notNull().defaultNow(),
+    // The calendar date it was raised, in the MLS time zone of that moment. The daily limit counts by it.
+    RaisedDate: date().notNull(),
+    ClosedByMemberKey: uuid().references(() => member.MemberKey),
+    ClosedTimestamp: timestamptz(),
+    ClosingNote: text(),
+  },
+  (t) => [
+    check("OsmlsFlag_Category_valid", sql.raw(`"Category" IN (${sqlList(FLAG_CATEGORIES)})`)),
+    check("OsmlsFlag_State_valid", sql.raw(`"State" IN (${sqlList(FLAG_STATES)})`)),
+    check("OsmlsFlag_Description_present", sql`length(trim(${t.Description})) > 0`),
+    // Open has no closing details; closed has all of them.
+    check(
+      "OsmlsFlag_closed_with_details",
+      sql`(${t.State} = 'Open') = (${t.ClosedByMemberKey} IS NULL) AND (${t.State} = 'Open') = (${t.ClosedTimestamp} IS NULL) AND (${t.State} = 'Open' OR length(trim(${t.ClosingNote})) > 0)`,
+    ),
+    // One open flag per member, per listing, per category.
+    uniqueIndex("OsmlsFlag_one_open").on(t.RaisedByMemberKey, t.ListingKey, t.Category).where(sql`${t.State} = 'Open'`),
+    index("OsmlsFlag_listing").on(t.ListingKey),
+    index("OsmlsFlag_raised_by_date").on(t.RaisedByMemberKey, t.RaisedDate),
+  ],
+);
+
+/*
+ * Which earlier listing a listing continues, when compliance staff have said.
+ * No row means it is chosen automatically, by parcel and address matching. It
+ * is kept apart from the listing so that it goes nowhere the listing goes.
+ */
+export const relistingLink = pgTable(
+  "OsmlsRelistingLink",
+  {
+    ListingKey: uuid()
+      .primaryKey()
+      .references(() => property.ListingKey),
+    // Null: this listing continues no earlier listing.
+    PredecessorKey: uuid().references(() => property.ListingKey),
+    ModificationTimestamp: timestamptz().notNull().defaultNow(),
+  },
+  (t) => [check("OsmlsRelistingLink_not_itself", sql`${t.PredecessorKey} IS NULL OR ${t.PredecessorKey} <> ${t.ListingKey}`)],
+);
+
 export type Media = typeof media.$inferSelect;
 export type HistoryRow = typeof historyTransactional.$inferSelect;
 export type SavedSearch = typeof savedSearch.$inferSelect;
 export type Collection = typeof collection.$inferSelect;
 export type Share = typeof share.$inferSelect;
 export type MarketTimeSettingsRow = typeof marketTimeSettings.$inferSelect;
+export type Flag = typeof flag.$inferSelect;

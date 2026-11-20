@@ -40,3 +40,7 @@ export const MAX_UNCERTAIN_ALERT_SENDS = 3;
 // How long a "set your password" link sent by MLS staff works.
 export const PASSWORD_LINK_HOURS = 24;
 export const MIN_PASSWORD_LENGTH = 12;
+
+// Compliance flags.
+export const MAX_FLAGS_PER_MEMBER_PER_DAY = 20;
+export const MAX_FLAG_TEXT_LENGTH = 1000;

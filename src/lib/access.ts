@@ -52,6 +52,10 @@ const isInListingOffice = (viewer: Viewer, listing: ListingSide): boolean =>
   viewer.OfficeKey != null &&
   viewer.OfficeKey === listing.ListOfficeKey;
 
+/** The people a listing belongs to: its listing agent, and agents in its listing office. */
+export const isListingSide = (viewer: Viewer, listing: ListingSide): boolean =>
+  isListingAgent(viewer, listing) || isInListingOffice(viewer, listing);
+
 const isAgent = (viewer: Viewer): boolean => isActive(viewer) && viewer.OsmlsRole === "agent";
 
 /*

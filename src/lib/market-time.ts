@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { desc, sql, type SQL } from "drizzle-orm";
+import { desc, inArray, sql, type SQL } from "drizzle-orm";
 import { cache } from "react";
 import { db } from "../db";
-import { marketTimeSettings, type MarketTimeSettingsRow } from "../db/schema";
+import { marketTimeSettings, relistingLink, type MarketTimeSettingsRow } from "../db/schema";
 import type { StandardStatus } from "./lookups";
 import { CONTINUABLE_END_STATUSES, type MarketTimeSettings } from "./rules/market-time";
 
@@ -196,6 +196,57 @@ export function choosePredecessor<T extends Identity & { listingKey: string; ent
   return best;
 }
 
+/**
+ * What compliance staff have said about which earlier listing a listing
+ * continues. Absent: nothing, so it is chosen by matching. Otherwise the key of
+ * the listing they named, or null for "none".
+ */
+export type RelistingLinkSetting = { predecessorKey: string | null };
+
+type Chained = Identity & Pick<MarketFacts, "listingKey" | "enteredAt" | "standardStatus">;
+
+/**
+ * Whether the same property was sold between two listings: a Closed listing
+ * entered after the earlier and before the later, and matched to either of
+ * them. A sale always starts the count again, so a link that staff make by
+ * hand may not carry a count past one.
+ */
+export function soldBetween<T extends Chained>(later: T, earlier: T, candidates: readonly T[], settings: MarketTimeSettings): T | null {
+  return (
+    candidates.find(
+      (c) =>
+        c.standardStatus === "Closed" &&
+        c.listingKey !== later.listingKey &&
+        c.listingKey !== earlier.listingKey &&
+        c.enteredAt.getTime() > earlier.enteredAt.getTime() &&
+        c.enteredAt.getTime() < later.enteredAt.getTime() &&
+        (sameProperty(c, later, settings) || sameProperty(c, earlier, settings)),
+    ) ?? null
+  );
+}
+
+/**
+ * The listing that came before this one. With nothing said by staff, it is
+ * chosen by matching. Staff saying "none" means there is none. A listing staff
+ * named is taken as the same property without consulting parcel, address, or
+ * the address-fallback setting; it must still be strictly earlier, and no sale
+ * of the property may lie between. Whether the count then continues is a
+ * separate question, answered by continuesPredecessor for every case alike.
+ */
+export function resolvePredecessor<T extends Chained>(
+  current: T,
+  link: RelistingLinkSetting | undefined,
+  named: T | null,
+  candidates: readonly T[],
+  settings: MarketTimeSettings,
+): T | null {
+  if (!link) return choosePredecessor(current, candidates, settings);
+  if (link.predecessorKey === null || !named) return null;
+  if (named.listingKey === current.listingKey || named.enteredAt.getTime() >= current.enteredAt.getTime()) return null;
+  if (soldBetween(current, named, candidates, settings)) return null;
+  return named;
+}
+
 // ---- The database side ----
 
 /**
@@ -271,6 +322,33 @@ function possiblePredecessorsOf(listings: readonly MarketFacts[]): SQL {
   return sql`(${byParcel} or ${byAddress})`;
 }
 
+/** What compliance staff have said about the listings given. A listing with no entry is matched automatically. */
+async function linksFor(listingKeys: readonly string[]): Promise<Map<string, RelistingLinkSetting>> {
+  if (listingKeys.length === 0) return new Map();
+  const rows = await db.select().from(relistingLink).where(inArray(relistingLink.ListingKey, [...listingKeys]));
+  return new Map(rows.map((r) => [r.ListingKey, { predecessorKey: r.PredecessorKey }]));
+}
+
+/**
+ * Why staff may not name `earlierKey` as the listing `laterKey` continues, or
+ * null if they may. The same tests decide whether a link already made is
+ * followed, so one made before a sale is entered stops being followed after.
+ */
+export async function relistingLinkRefusal(laterKey: string, earlierKey: string): Promise<string | null> {
+  const settings = await currentSettings();
+  const asOf = new Date();
+  const pair = await fetchFacts(sql`p."ListingKey" in ${inList([laterKey, earlierKey])}`, asOf, settings);
+  const later = pair.find((f) => f.listingKey === laterKey);
+  const earlier = pair.find((f) => f.listingKey === earlierKey);
+  if (!later || !earlier || laterKey === earlierKey) return "Choose a different listing.";
+  if (earlier.enteredAt.getTime() >= later.enteredAt.getTime()) return `Listing ${earlier.listingId} was not entered before this one, so this one cannot continue it.`;
+  const sale = soldBetween(later, earlier, await fetchFacts(possiblePredecessorsOf(pair), asOf, settings), settings);
+  if (sale) {
+    return `Listing ${sale.listingId} is a sale of the same property between the two, and a sale always starts the count again. If ${sale.listingId} is a different property, correct its parcel number or address first.`;
+  }
+  return null;
+}
+
 // Far more relistings than any real property has; a backstop, not a rule.
 const MAX_CHAIN_LENGTH = 200;
 
@@ -292,10 +370,15 @@ export async function getMarketTime(
 
   // Walk back one generation of listings at a time, for all of them together.
   for (let depth = 0; frontier.length > 0 && depth < MAX_CHAIN_LENGTH; depth++) {
-    const candidates = await fetchFacts(possiblePredecessorsOf(frontier), asOf, settings);
+    const links = await linksFor(frontier.map((f) => f.listingKey));
+    const namedKeys = [...links.values()].map((l) => l.predecessorKey).filter((k): k is string => k !== null);
+    const named = new Map((namedKeys.length ? await fetchFacts(sql`p."ListingKey" in ${inList(namedKeys)}`, asOf, settings) : []).map((f) => [f.listingKey, f]));
+    // Listings that could be the same property as any of these, or as a listing staff named.
+    const candidates = await fetchFacts(possiblePredecessorsOf([...frontier, ...named.values()]), asOf, settings);
     const next: MarketFacts[] = [];
     for (const current of frontier) {
-      const predecessor = choosePredecessor(current, candidates, settings);
+      const link = links.get(current.listingKey);
+      const predecessor = resolvePredecessor(current, link, link?.predecessorKey ? (named.get(link.predecessorKey) ?? null) : null, candidates, settings);
       const linked = predecessor && continuesPredecessor(current, predecessor, settings) ? predecessor : null;
       continuedFrom.set(current.listingKey, linked?.listingKey ?? null);
       if (linked && !facts.has(linked.listingKey)) {

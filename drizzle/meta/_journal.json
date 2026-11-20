@@ -85,6 +85,13 @@
       "when": 1795203477499,
       "tag": "0011_staff_capabilities_and_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795208576156,
+      "tag": "0012_compliance_flags",
+      "breakpoints": true
     }
   ]
 }

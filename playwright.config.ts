@@ -16,10 +16,12 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   use: { baseURL, trace: "retain-on-failure" },
   // The permissions test changes the market-time settings that the figures in
-  // every other test depend on, so it runs alone, after the rest have finished.
+  // every other test depend on, and the compliance test changes one of those
+  // figures, so each runs alone, after the rest have finished.
   projects: [
-    { name: "main", testIgnore: /permissions\.spec\.ts/ },
+    { name: "main", testIgnore: /(permissions|compliance)\.spec\.ts/ },
     { name: "settings", testMatch: /permissions\.spec\.ts/, dependencies: ["main"] },
+    { name: "compliance", testMatch: /compliance\.spec\.ts/, dependencies: ["settings"] },
   ],
   webServer: {
     // The production build, not the development server: the development server
