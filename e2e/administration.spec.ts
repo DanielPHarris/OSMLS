@@ -212,6 +212,9 @@ test("suspending from the screen ends a member's client link and reinstating res
   await expect(signInSection.getByRole("status").first()).toContainText("Email changed.");
   await expect(page.getByTestId("member-summary")).toContainText(RENAMED);
   await member.getByRole("button", { name: "Sign out" }).click();
+  // Signed out before going on: navigating away at once can cut the sign-out short,
+  // and the sign-in page then sends the still signed-in member back to search.
+  await expect(member).toHaveURL(/\/sign-in/);
   await signIn(member, NEW_EMAIL, chosenPassword);
   await expect(member.getByRole("alert").filter({ hasText: "do not match" })).toBeVisible();
   await signIn(member, RENAMED, chosenPassword);
