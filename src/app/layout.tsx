@@ -31,7 +31,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                       <Link href="/listings/new">New listing</Link>
                     </>
                   )}
-                  {current.OsmlsRole === "staff" && <Link href="/admin/members">Members</Link>}
+                  {current.OsmlsRole === "staff" && (
+                    <>
+                      <Link href="/admin/members">Members</Link>
+                      <Link href="/admin/offices">Offices</Link>
+                    </>
+                  )}
                 </nav>
                 <div className="ml-auto flex items-center gap-3 text-sm">
                   <span className="text-muted">

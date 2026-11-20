@@ -6,7 +6,7 @@ import { fieldLabel, formatDateTime } from "@/lib/format";
 import { getMemberForAdmin, getMemberHistory, listOffices } from "@/lib/members";
 import { PASSWORD_LINK_HOURS } from "@/lib/rules/local";
 import { requireMember } from "@/lib/session";
-import { changeMemberEmailAction, sendPasswordLinkAction, setMemberStatusAction, updateMemberAction } from "../../../admin-actions";
+import { changeMemberEmailAction, moveMemberAction, sendPasswordLinkAction, setMemberStatusAction, updateMemberAction } from "../../../admin-actions";
 
 export default async function MemberPage({ params }: { params: Promise<{ key: string }> }) {
   const current = await requireMember();
@@ -67,7 +67,7 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
               Office, when making this member an agent
               <select name="officeKey" defaultValue="" className="field">
                 <option value="">None</option>
-                {offices.map((o) => (
+                {offices.filter((o) => o.OfficeStatus === "Active").map((o) => (
                   <option key={o.OfficeKey} value={o.OfficeKey}>
                     {o.OfficeName}
                   </option>
@@ -82,6 +82,48 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
           <button className="btn">Save details</button>
         </ActionForm>
       </section>
+
+      {m.OsmlsRole === "agent" && (
+        <section className="card space-y-3" aria-labelledby="office-heading" data-testid="member-office">
+          <h2 id="office-heading" className="text-base font-semibold">
+            Office:{" "}
+            {m.OfficeKey ? (
+              <Link href={`/admin/offices/${m.OfficeKey}`} className="text-brand underline" data-testid="member-office-name">
+                {officeName}
+              </Link>
+            ) : (
+              <span data-testid="member-office-name">none</span>
+            )}
+          </h2>
+          <p className="text-sm text-muted">
+            Moving an agent changes at once what they may see of colleagues&rsquo; listings: the old office&rsquo;s
+            office-only documents and showing details go, and the new office&rsquo;s come. Their own listings keep the
+            office recorded on them, and they remain the listing agent.
+          </p>
+          <ActionForm action={moveMemberAction.bind(null, m.MemberKey)} className="space-y-3">
+            <label className="label">
+              Move to
+              <select name="officeKey" required defaultValue="" className="field">
+                <option value="" disabled>
+                  Choose an office
+                </option>
+                {offices
+                  .filter((o) => o.OfficeStatus === "Active" && o.OfficeKey !== m.OfficeKey)
+                  .map((o) => (
+                    <option key={o.OfficeKey} value={o.OfficeKey}>
+                      {o.OfficeName}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="label block">
+              Reason for the move
+              <textarea name="reason" required maxLength={500} rows={2} className="field w-full" />
+            </label>
+            <button className="btn">Move agent</button>
+          </ActionForm>
+        </section>
+      )}
 
       <section className="card space-y-3" aria-labelledby="signin-heading" data-testid="member-sign-in">
         <h2 id="signin-heading" className="text-base font-semibold">

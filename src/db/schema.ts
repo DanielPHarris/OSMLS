@@ -16,11 +16,13 @@ import {
   text,
   timestamp,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import {
   DOCUMENT_PERMISSIONS,
   MEDIA_CATEGORIES,
   MEMBER_STATUSES,
+  OFFICE_STATUSES,
   PROPERTY_TYPES,
   ROLES,
   STANDARD_STATUSES,
@@ -36,18 +38,28 @@ import {
 
 const timestamptz = () => timestamp({ withTimezone: true, mode: "date" });
 
-export const office = pgTable("Office", {
-  OfficeKey: uuid().primaryKey().defaultRandom(),
-  OfficeMlsId: text().notNull().unique(),
-  OfficeName: text().notNull(),
-  // Null for a brokerage's main office; otherwise points at it.
-  MainOfficeKey: uuid(),
-  OfficeStatus: text().notNull().default("Active"),
-  OfficePhone: text(),
-  OfficeCity: text(),
-  OfficeStateOrProvince: text(),
-  ModificationTimestamp: timestamptz().notNull().defaultNow(),
-});
+export const office = pgTable(
+  "Office",
+  {
+    OfficeKey: uuid().primaryKey().defaultRandom(),
+    OfficeMlsId: text().notNull().unique(),
+    OfficeName: text().notNull(),
+    // Null for a brokerage's main office; otherwise points at it. A brokerage is
+    // one level deep: a branch's main office is itself a main office. That, and
+    // the rules tying an office's status to its agents and branches, are kept by
+    // src/lib/offices.ts, which makes every such change one at a time.
+    MainOfficeKey: uuid().references((): AnyPgColumn => office.OfficeKey),
+    OfficeStatus: text().notNull().default("Active"),
+    OfficePhone: text(),
+    OfficeCity: text(),
+    OfficeStateOrProvince: text(),
+    ModificationTimestamp: timestamptz().notNull().defaultNow(),
+  },
+  (t) => [
+    check("Office_OfficeStatus_valid", sql.raw(`"OfficeStatus" IN (${sqlList(OFFICE_STATUSES)})`)),
+    check("Office_not_its_own_main", sql`${t.MainOfficeKey} IS NULL OR ${t.MainOfficeKey} <> ${t.OfficeKey}`),
+  ],
+);
 
 export const member = pgTable(
   "Member",

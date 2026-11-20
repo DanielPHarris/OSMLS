@@ -27,6 +27,7 @@ export const PROPERTY_TYPES = [
 export type PropertyType = (typeof PROPERTY_TYPES)[number];
 
 export const MEMBER_STATUSES = ["Active", "Inactive"] as const;
+export const OFFICE_STATUSES = ["Active", "Inactive"] as const;
 
 export const MEDIA_CATEGORIES = ["Photo", "Document"] as const;
 

@@ -31,24 +31,26 @@ const notFound = () => new ListingError("Not found.");
 const isKey = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
 
 /** Held to the end of the transaction: one status or role change at a time. */
-const takeAuthorityTurn = (tx: Tx) => tx.execute(sql`select pg_advisory_xact_lock(hashtext('osmls:member:authority'))`);
+export const takeAuthorityTurn = (tx: Tx) => tx.execute(sql`select pg_advisory_xact_lock(hashtext('osmls:member:authority'))`);
 
 /** The acting member as they are now, inside the turn. Throws unless they may administer. */
-async function actingStaff(tx: Tx, actor: Member | null): Promise<Member> {
+export async function actingStaff(tx: Tx, actor: Member | null): Promise<Member> {
   if (!actor) throw notFound();
   const [now] = await tx.select().from(member).where(eq(member.MemberKey, actor.MemberKey));
   if (!now || !canAdminister(now)) throw notFound();
   return now;
 }
 
-type Change = { field: string; previous: string | null; next: string | null; type: string; reason?: string };
-const record = (tx: Tx, actor: Member, target: Pick<Member, "MemberKey" | "MemberMlsId">, changes: Change[]) =>
+export type Change = { field: string; previous: string | null; next: string | null; type: string; reason?: string };
+
+/** Writes administrative changes to a member or an office into the change history. */
+export const recordChanges = (tx: Tx, actor: Member, resource: "Member" | "Office", target: { key: string; id: string }, changes: Change[]) =>
   tx.insert(historyTransactional).values(
     changes.map((c) => ({
-      ResourceName: "Member",
-      ResourceRecordKey: target.MemberKey,
-      ResourceRecordID: target.MemberMlsId,
-      ClassName: "Member",
+      ResourceName: resource,
+      ResourceRecordKey: target.key,
+      ResourceRecordID: target.id,
+      ClassName: resource,
       FieldName: c.field,
       PreviousValue: c.previous,
       NewValue: c.next,
@@ -58,6 +60,15 @@ const record = (tx: Tx, actor: Member, target: Pick<Member, "MemberKey" | "Membe
       OsmlsCorrectionReason: c.reason ?? null,
     })),
   );
+const record = (tx: Tx, actor: Member, target: Pick<Member, "MemberKey" | "MemberMlsId">, changes: Change[]) =>
+  recordChanges(tx, actor, "Member", { key: target.MemberKey, id: target.MemberMlsId }, changes);
+
+export function checkedReason(reason: unknown): string {
+  const why = typeof reason === "string" ? reason.trim() : "";
+  if (!why) throw new ListingError("Give a reason.", { reason: "A reason is required." });
+  if (why.length > 500) throw new ListingError("Keep the reason to 500 characters.", { reason: "Use 500 characters or fewer." });
+  return why;
+}
 
 const emailInput = z.email("Enter one email address.").max(254).transform((v) => v.toLowerCase());
 const detailsInput = z.object({
@@ -77,9 +88,13 @@ function parsed<T>(schema: z.ZodType<T>, input: unknown): T {
   throw new ListingError("Check the fields marked below.", errors);
 }
 
+/** The office an agent is being put in. It must exist and be active: an active agent is never in an inactive office. */
 async function officeFor(tx: Tx, officeKey: string): Promise<string> {
   const [found] = isKey(officeKey) ? await tx.select().from(office).where(eq(office.OfficeKey, officeKey)) : [];
   if (!found) throw new ListingError("Check the fields marked below.", { officeKey: "An agent needs an office." });
+  if (found.OfficeStatus !== "Active") {
+    throw new ListingError("Check the fields marked below.", { officeKey: `${found.OfficeName} is inactive. Choose an active office.` });
+  }
   return found.OfficeKey;
 }
 
@@ -350,9 +365,7 @@ export const listOffices = () => db.select().from(office).orderBy(asc(office.Off
  */
 export async function setMemberStatus(actor: Member | null, key: unknown, status: "Active" | "Inactive", reason: unknown): Promise<void> {
   if (!canAdminister(actor) || !isKey(key)) throw notFound();
-  const why = typeof reason === "string" ? reason.trim() : "";
-  if (!why) throw new ListingError("Give a reason.", { reason: "A reason is required." });
-  if (why.length > 500) throw new ListingError("Keep the reason to 500 characters.", { reason: "Use 500 characters or fewer." });
+  const why = checkedReason(reason);
   await db.transaction(async (tx) => {
     await takeAuthorityTurn(tx);
     const by = await actingStaff(tx, actor);
@@ -361,10 +374,47 @@ export async function setMemberStatus(actor: Member | null, key: unknown, status
     if (target.MemberKey === by.MemberKey) throw new ListingError("You cannot suspend or reinstate your own account.");
     if (target.MemberStatus === status) return;
     if (status === "Inactive") await keepOneStaff(tx, target, "suspended");
+    if (status === "Active" && target.OsmlsRole === "agent") {
+      // Read inside the turn, which a deactivation of the office also takes.
+      const [theirs] = target.OfficeKey ? await tx.select().from(office).where(eq(office.OfficeKey, target.OfficeKey)) : [];
+      if (!theirs || theirs.OfficeStatus !== "Active") {
+        throw new ListingError(
+          `${theirs?.OfficeName ?? "This agent's office"} is inactive, so this agent cannot be reinstated there. Move them to an active office first, or reactivate that office.`,
+        );
+      }
+    }
     await tx.update(member).set({ MemberStatus: status, ModificationTimestamp: new Date() }).where(eq(member.MemberKey, key));
     await record(tx, by, target, [
       { field: "MemberStatus", previous: target.MemberStatus, next: status, type: status === "Inactive" ? "Suspended" : "Reinstated", reason: why },
     ]);
+  });
+}
+
+/**
+ * Moves an agent to another office, with a reason. A suspended agent can be
+ * moved too, so that they can then be reinstated. Their listings keep the
+ * office recorded on them, and the agent stays their listing agent. What the
+ * old office's membership let them see of colleagues' listings goes at once,
+ * and the new office's comes, because every request reads the member afresh.
+ */
+export async function moveMember(actor: Member | null, key: unknown, officeKey: unknown, reason: unknown): Promise<void> {
+  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  const why = checkedReason(reason);
+  await db.transaction(async (tx) => {
+    await takeAuthorityTurn(tx);
+    const by = await actingStaff(tx, actor);
+    const [target] = await tx.select().from(member).where(eq(member.MemberKey, key)).for("update");
+    if (!target) throw notFound();
+    if (target.OsmlsRole !== "agent") throw new ListingError("Only an agent has an office.");
+    const [destination] = isKey(officeKey) ? await tx.select().from(office).where(eq(office.OfficeKey, officeKey)) : [];
+    if (!destination) throw new ListingError("Choose an office from the list.", { officeKey: "Choose an office from the list." });
+    if (destination.OfficeStatus !== "Active") {
+      const message = `${destination.OfficeName} is inactive. Choose an active office.`;
+      throw new ListingError(message, { officeKey: message });
+    }
+    if (destination.OfficeKey === target.OfficeKey) return;
+    await tx.update(member).set({ OfficeKey: destination.OfficeKey, ModificationTimestamp: new Date() }).where(eq(member.MemberKey, key));
+    await record(tx, by, target, [{ field: "OfficeKey", previous: target.OfficeKey, next: destination.OfficeKey, type: "Office Move", reason: why }]);
   });
 }
 

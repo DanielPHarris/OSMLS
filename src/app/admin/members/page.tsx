@@ -27,7 +27,11 @@ export default async function MembersPage({ searchParams }: { searchParams: Prom
         <p className="mb-3 text-sm text-muted">
           You do not choose their password. They are emailed a link, good once and for 24 hours, to set their own.
         </p>
-        <MemberForm action={createMemberAction} offices={offices.map((o) => ({ value: o.OfficeKey, label: o.OfficeName }))} />
+        <MemberForm
+          action={createMemberAction}
+          // Only an active office can be given a member.
+          offices={offices.filter((o) => o.OfficeStatus === "Active").map((o) => ({ value: o.OfficeKey, label: o.OfficeName }))}
+        />
       </section>
       <form className="card flex flex-wrap items-end gap-3" data-testid="member-filters">
         <label className="label">

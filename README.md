@@ -483,8 +483,8 @@ unknown.
 
 The first of three slices of "administration". MLS staff can add a member, change
 a member's details and role, and suspend or reinstate a member's access, at
-**Members** in the page header. Offices and brokerages, and finer staff
-permissions, are the other two slices and are not built.
+**Members** in the page header. Offices and brokerages are the second slice, below.
+Finer staff permissions are the third and are not built.
 
 - **Who may.** Every active MLS staff account, until finer staff permissions
   exist. For anyone else these pages and actions answer "not found".
@@ -502,8 +502,8 @@ permissions, are the other two slices and are not built.
   an email are taken one at a time for each member, so a link is always for the
   address the member has when it is made, and only the newest link works.
 - **Role and office.** Making a member an agent needs an office; making one MLS
-  staff removes it. Moving an agent between offices is not available yet. A
-  listing keeps the office recorded on it whatever happens to its agent.
+  staff removes it. Moving an agent between offices is described below. A listing
+  keeps the office recorded on it whatever happens to its agent.
 - **Suspension.** Needs a reason. It denies access through every session the
   member has, at once; it does not delete those sessions, so reinstating restores
   access without a new sign-in. A suspended member can still sign in and is then
@@ -524,9 +524,47 @@ also in the code. With the guards above it cannot be reached through the
 application, so no test exercises it; it is there in case a later change opens a
 way.
 
+### Added since 0.1: offices and brokerages
+
+The second of three slices of "administration". MLS staff can add an office,
+change its details, group offices into a brokerage, deactivate and reactivate an
+office, and move an agent from one office to another, at **Offices** in the page
+header and on each member's page.
+
+- **Who may.** Every active MLS staff account, as for members.
+- **A brokerage is a main office and its branches**, one level deep. A branch's
+  main office must itself be a main office, an office with branches cannot become
+  a branch, and an office cannot be its own main office.
+- **Grouping changes no one's access.** Office-only documents and showing details
+  stay with the one office named on a listing, not its brokerage.
+- **An active agent is always in an active office.** An office with active agents
+  cannot be deactivated; staff move or suspend them first. An inactive office
+  cannot be given an agent by any route: adding a member, making MLS staff an
+  agent, moving an agent, or reinstating one. A suspended agent can be moved, so
+  that they can then be reinstated.
+- **An active branch always has an active main office.** A main office with active
+  branches cannot be deactivated, and an active branch cannot be added under,
+  moved under, or reactivated under an inactive main office.
+- **Moving an agent** needs a reason. Their listings keep the office recorded on
+  them and they remain the listing agent. What the old office's membership let
+  them see of colleagues' listings goes on their next request, including in a
+  session already open, and the new office's comes. Saved work, client links, and
+  alerts are untouched.
+- **Reasons and the record.** Deactivating, reactivating, and moving each need a
+  reason. Every change to an office is recorded with who, what, and when, and is
+  shown on the office's page; a move is recorded on the member.
+- **One at a time.** Every change to an office's status or brokerage, and every
+  move and reinstatement, takes the same MLS-wide turn as status and role changes,
+  so each rule is checked against a state nothing else is changing. Tests race a
+  move, a reinstatement, and a regrouping against a deactivation.
+- **No deletion.** Listings and history refer to offices.
+
+Not included: brokerage-wide access, broker or office-manager roles, moving
+listings between offices, bulk moves, and licence or membership data.
+
 ### Not yet built
 
-Client accounts and scheduled email to clients, offices and brokerages, finer staff
+Client accounts and scheduled email to clients, brokerage-wide access, finer staff
 permissions, self-service password reset, compliance flags, imports and exports, a
 RESO Web API endpoint, fair-housing checks on remarks, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
@@ -662,7 +700,7 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `SavedSearch.OsmlsAlertGeneration` | Raised by each change the member makes, so a late send cannot undo it |
 | `OsmlsShare` | A link given to a client: who made it, a hash of the link, what it shows, when it expires or was revoked, and the recipient's address while kept |
 | `OsmlsMailBlock` | Keyed hashes of addresses that asked for no more email |
-| `HistoryTransactional.ResourceName` | `Property` for a listing's history; `Member` for an administrative change to a member |
+| `HistoryTransactional.ResourceName` | `Property` for a listing's history; `Member` or `Office` for an administrative change to one |
 | `HistoryTransactional.OsmlsStaffCorrection` | Whether MLS staff made the change |
 | `HistoryTransactional.OsmlsCorrectionReason` | The reason staff gave |
 
