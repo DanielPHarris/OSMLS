@@ -11,9 +11,17 @@ const baseURL = `http://localhost:${port}`;
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
+  // Longer than the default five seconds, so a slow machine does not fail a
+  // test whose page was only late. An assertion still passes the moment it holds.
+  expect: { timeout: 15_000 },
   use: { baseURL, trace: "retain-on-failure" },
   webServer: {
-    command: `pnpm dev --port ${port}`,
+    // The production build, not the development server: the development server
+    // closes a connection after five idle seconds and cannot be told otherwise,
+    // and a request that reuses a connection at that moment is reset or left
+    // unanswered. That is the likely cause of these tests failing at random,
+    // here and on GitHub: against this server the failures stopped.
+    command: `pnpm build && pnpm start --port ${port} --keepAliveTimeout 70000`,
     url: `${baseURL}/sign-in`,
     // The test always starts its own server on the test database and a separate
     // photo folder, so it cannot write to development or demo data.
