@@ -2,7 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { office, property, type Member, type Property } from "../db/schema";
 import { canViewShowing, isActive } from "./access";
-import { getListing, localDate, searchListings } from "./listings";
+import { getListing, mlsDate, searchListings } from "./listings";
 import { getMarketTime } from "./market-time";
 import {
   CLIENT_COPY_STATUSES,
@@ -116,7 +116,7 @@ async function base(viewer: Member, kind: ReportBase["kind"], disclosure: Disclo
       phone: viewer.MemberDirectPhone,
       email: viewer.MemberEmail,
     },
-    preparedOn: localDate(new Date()),
+    preparedOn: await mlsDate(new Date()),
   };
 }
 

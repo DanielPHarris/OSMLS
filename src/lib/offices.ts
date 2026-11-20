@@ -2,13 +2,13 @@ import { and, asc, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Tx } from "../db";
 import { historyTransactional, member, office, type Member, type Office } from "../db/schema";
-import { canAdminister } from "./access";
+import { can } from "./access";
 import { ListingError } from "./listings";
 import { OFFICE_STATUSES } from "./lookups";
 import { actingStaff, checkedReason, recordChanges, takeAuthorityTurn, type Change } from "./members";
 
 /*
- * Office administration. Only MLS staff may (canAdminister in
+ * Office administration. Only MLS staff who manage offices may (can in
  * src/lib/access.ts); anyone else is answered as if nothing were there.
  *
  * A brokerage is a main office and its branches, one level deep: a branch names
@@ -73,13 +73,13 @@ async function mainOfficeFor(tx: Tx, branch: { key: string | null; active: boole
 
 /** Adds an office. It starts active: a main office, or a branch of the main office given. */
 export async function createOffice(actor: Member | null, input: unknown): Promise<Office> {
-  if (!canAdminister(actor)) throw notFound();
+  if (!can(actor, "offices")) throw notFound();
   const v = parsed(officeInput, input);
   const mainKey = typeof (input as { mainOfficeKey?: unknown })?.mainOfficeKey === "string" ? (input as { mainOfficeKey: string }).mainOfficeKey.trim() : "";
   try {
     return await db.transaction(async (tx) => {
       await takeAuthorityTurn(tx);
-      const by = await actingStaff(tx, actor);
+      const by = await actingStaff(tx, actor, "offices");
       const main = await mainOfficeFor(tx, { key: null, active: true }, mainKey);
       const [row] = await tx
         .insert(office)
@@ -107,12 +107,12 @@ const DETAIL_FIELDS = { OfficeName: "name", OfficeMlsId: "officeId", OfficePhone
 
 /** Changes an office's name, office ID, phone, city, and state. */
 export async function updateOffice(actor: Member | null, key: unknown, input: unknown): Promise<void> {
-  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  if (!can(actor, "offices") || !isKey(key)) throw notFound();
   const v = parsed(officeInput, input);
   try {
     await db.transaction(async (tx) => {
       await takeAuthorityTurn(tx);
-      const by = await actingStaff(tx, actor);
+      const by = await actingStaff(tx, actor, "offices");
       const [target] = await tx.select().from(office).where(eq(office.OfficeKey, key)).for("update");
       if (!target) throw notFound();
       const changes: Change[] = [];
@@ -138,11 +138,11 @@ export async function updateOffice(actor: Member | null, key: unknown, input: un
  * stays one level deep and no chain or cycle can form.
  */
 export async function setMainOffice(actor: Member | null, key: unknown, mainOfficeKey: unknown): Promise<void> {
-  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  if (!can(actor, "offices") || !isKey(key)) throw notFound();
   const mainKey = typeof mainOfficeKey === "string" ? mainOfficeKey.trim() : "";
   await db.transaction(async (tx) => {
     await takeAuthorityTurn(tx);
-    const by = await actingStaff(tx, actor);
+    const by = await actingStaff(tx, actor, "offices");
     const [target] = await tx.select().from(office).where(eq(office.OfficeKey, key)).for("update");
     if (!target) throw notFound();
     const main = await mainOfficeFor(tx, { key: target.OfficeKey, active: target.OfficeStatus === "Active" }, mainKey);
@@ -165,11 +165,11 @@ export async function setMainOffice(actor: Member | null, key: unknown, mainOffi
  * branch cannot be reactivated under an inactive main office.
  */
 export async function setOfficeStatus(actor: Member | null, key: unknown, status: "Active" | "Inactive", reason: unknown): Promise<void> {
-  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  if (!can(actor, "offices") || !isKey(key)) throw notFound();
   const why = checkedReason(reason);
   await db.transaction(async (tx) => {
     await takeAuthorityTurn(tx);
-    const by = await actingStaff(tx, actor);
+    const by = await actingStaff(tx, actor, "offices");
     const [target] = await tx.select().from(office).where(eq(office.OfficeKey, key)).for("update");
     if (!target) throw notFound();
     if (target.OfficeStatus === status) return;
@@ -215,7 +215,7 @@ export type OfficeFilters = { q?: string; status?: string; brokerage?: string };
  * its branches. Null for anyone who may not administer.
  */
 export async function listOfficesForAdmin(actor: Member | null, filters: OfficeFilters = {}) {
-  if (!canAdminister(actor)) return null;
+  if (!can(actor, "offices")) return null;
   const q = filters.q?.trim();
   const like = q ? `%${q.replace(/[\\%_]/g, "\\$&")}%` : null;
   return db
@@ -241,7 +241,7 @@ export const listMainOffices = () => db.select().from(office).where(isNull(offic
 
 /** One office with its main office, its branches, its members, and its change record. Null for anyone who may not administer. */
 export async function getOfficeForAdmin(actor: Member | null, key: unknown) {
-  if (!canAdminister(actor) || !isKey(key)) return null;
+  if (!can(actor, "offices") || !isKey(key)) return null;
   const [row] = await db.select().from(office).where(eq(office.OfficeKey, key));
   if (!row) return null;
   const [main] = row.MainOfficeKey ? await db.select().from(office).where(eq(office.OfficeKey, row.MainOfficeKey)) : [];

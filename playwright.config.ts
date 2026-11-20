@@ -15,6 +15,12 @@ export default defineConfig({
   // test whose page was only late. An assertion still passes the moment it holds.
   expect: { timeout: 15_000 },
   use: { baseURL, trace: "retain-on-failure" },
+  // The permissions test changes the market-time settings that the figures in
+  // every other test depend on, so it runs alone, after the rest have finished.
+  projects: [
+    { name: "main", testIgnore: /permissions\.spec\.ts/ },
+    { name: "settings", testMatch: /permissions\.spec\.ts/, dependencies: ["main"] },
+  ],
   webServer: {
     // The production build, not the development server: the development server
     // closes a connection after five idle seconds and cannot be told otherwise,

@@ -1,9 +1,9 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { historyTransactional, member, office, property, type Property } from "../db/schema";
-import { localDate, withoutShowing } from "./listings";
+import { localDate, mlsDate, withoutShowing } from "./listings";
 import type { StandardStatus } from "./lookups";
-import { getMarketTime, type MarketTime } from "./market-time";
+import { currentSettings, getMarketTime, type MarketTime } from "./market-time";
 import { COMPARABLE_DEFAULTS } from "./rules/market-time";
 
 /*
@@ -43,10 +43,11 @@ export async function getMarketTimeline(listingKey: string): Promise<TimelineEnt
     )
     .orderBy(asc(historyTransactional.ModificationTimestamp), asc(historyTransactional.OsmlsSequence));
 
+  const { timeZone } = await currentSettings();
   const money = (v: string | null) =>
     v == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(v));
   return rows.map((row) => {
-    const date = localDate(row.at);
+    const date = localDate(row.at, timeZone);
     if (row.field === "StandardStatus")
       return row.previous == null
         ? { date, event: "Listed", detail: row.next ?? "" }
@@ -148,7 +149,7 @@ export async function findComparables(
   const hasPin = subject.Latitude != null && subject.Longitude != null;
   if (criteria.area === "radius" && !hasPin) return [];
 
-  const earliestClose = localDate(new Date(asOf.getTime() - criteria.closedWithinDays * 86_400_000));
+  const earliestClose = await mlsDate(new Date(asOf.getTime() - criteria.closedWithinDays * 86_400_000));
   // Unknown when either end has no pin.
   const distance = hasPin ? milesFrom(subject.Latitude!, subject.Longitude!) : sql<number | null>`null`;
   const conditions = [

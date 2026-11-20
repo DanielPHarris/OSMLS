@@ -3,17 +3,24 @@ import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Tx } from "../db";
 import { historyTransactional, member, office, user, verification, type Member } from "../db/schema";
-import { canAdminister } from "./access";
+import { can, canSeeMembers, capabilityOver } from "./access";
 import { auth } from "./auth";
 import { ListingError } from "./listings";
-import { MEMBER_STATUSES, ROLES } from "./lookups";
+import { CAPABILITIES, MEMBER_STATUSES, ROLES, type Capability } from "./lookups";
 import { MailError, appUrl, mailEnabled, sendMail } from "./mail";
 import { MIN_PASSWORD_LENGTH, PASSWORD_LINK_HOURS } from "./rules/local";
 
 /*
  * Member administration: adding members, and suspending or reinstating their
- * access. Only MLS staff may (canAdminister in src/lib/access.ts); anyone else
- * is answered as if the thing did not exist.
+ * access. Staff who hold "Manage members" may do this to agents; doing it to a
+ * staff account, making one, or changing a role to or from staff takes "Manage
+ * staff", which also grants and revokes capabilities (src/lib/access.ts).
+ * Anyone else is answered as if the thing did not exist.
+ *
+ * Who the acting member is and what the target is are both read again inside
+ * the protected step, never taken from what the request saw: an agent who has
+ * since become staff is treated as staff, and a capability revoked meanwhile
+ * refuses the action.
  *
  * Staff never type a member's password. A member sets their own through a
  * one-time link. The sign-in library keeps the link (as a hash) and spends it;
@@ -33,12 +40,17 @@ const isKey = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{
 /** Held to the end of the transaction: one status or role change at a time. */
 export const takeAuthorityTurn = (tx: Tx) => tx.execute(sql`select pg_advisory_xact_lock(hashtext('osmls:member:authority'))`);
 
-/** The acting member as they are now, inside the turn. Throws unless they may administer. */
-export async function actingStaff(tx: Tx, actor: Member | null): Promise<Member> {
+/** The acting member as they are now, inside the turn. Throws unless they hold one of the capabilities named. */
+export async function actingStaff(tx: Tx, actor: Member | null, ...anyOf: Capability[]): Promise<Member> {
   if (!actor) throw notFound();
   const [now] = await tx.select().from(member).where(eq(member.MemberKey, actor.MemberKey));
-  if (!now || !canAdminister(now)) throw notFound();
+  if (!now || !anyOf.some((capability) => can(now, capability))) throw notFound();
   return now;
+}
+
+/** The acting member, if they may act on this target as it is now. */
+async function actingOver(tx: Tx, actor: Member | null, target: Member): Promise<Member> {
+  return actingStaff(tx, actor, capabilityOver(target));
 }
 
 export type Change = { field: string; previous: string | null; next: string | null; type: string; reason?: string };
@@ -98,14 +110,20 @@ async function officeFor(tx: Tx, officeKey: string): Promise<string> {
   return found.OfficeKey;
 }
 
-/** The last active staff account may not be suspended or made an agent. */
-async function keepOneStaff(tx: Tx, target: Member, doing: string) {
-  if (target.OsmlsRole !== "staff" || target.MemberStatus !== "Active") return;
+/**
+ * Someone must always be able to manage staff, or no one could ever grant a
+ * capability again. Called inside the authority turn, before an active holder
+ * of "Manage staff" loses it, is suspended, or is made an agent.
+ */
+async function keepOneAdministrator(tx: Tx, target: Member, doing: string) {
+  if (!can(target, "staff")) return;
   const [{ others }] = await tx
     .select({ others: sql<number>`count(*)::int` })
     .from(member)
-    .where(sql`${member.OsmlsRole} = 'staff' and ${member.MemberStatus} = 'Active' and ${member.MemberKey} <> ${target.MemberKey}`);
-  if (others === 0) throw new ListingError(`This is the last active MLS staff account, so it cannot be ${doing}.`);
+    .where(
+      sql`${member.OsmlsRole} = 'staff' and ${member.MemberStatus} = 'Active' and 'staff' = any(${member.OsmlsCapabilities}) and ${member.MemberKey} <> ${target.MemberKey}`,
+    );
+  if (others === 0) throw new ListingError(`This is the last active account that can manage staff, so it cannot be ${doing}.`);
 }
 
 function translateDuplicate(err: unknown): never {
@@ -133,7 +151,8 @@ export type PasswordLink = {
  * Makes a one-time link for a member to set their password, ending any earlier
  * one, and emails it. With email off, the link comes back to be passed on.
  *
- * Making the link is one protected step per member: the member's row is locked,
+ * Making the link is one protected step per member, taken in the same turn as
+ * every change to anyone's status, role, or capabilities: the member's row is locked,
  * their identity is read as it is at that moment, the earlier link is ended, and
  * the new one is stored, before anything else may issue a link for them or
  * change their email. So a link is always for the address the member has when
@@ -149,6 +168,10 @@ async function issuePasswordLink(
 ): Promise<PasswordLink> {
   const token = randomBytes(32).toString("base64url");
   const target = await db.transaction(async (tx) => {
+    // The authority turn first, then the member's row, as everywhere else. Without
+    // the turn, a link asked for while a revocation was under way could pass its
+    // check on what the acting member held before, and be made after they held nothing.
+    await takeAuthorityTurn(tx);
     const [row] = await tx.select().from(member).where(eq(member.MemberKey, memberKey)).for("update");
     if (!row) throw notFound();
     await inside?.(tx, row);
@@ -189,14 +212,15 @@ async function issuePasswordLink(
 
 /** Adds a member and sends them a link to set their password. */
 export async function createMember(actor: Member | null, input: unknown): Promise<{ member: Member; passwordLink: PasswordLink }> {
-  if (!canAdminister(actor)) throw notFound();
+  if (!canSeeMembers(actor)) throw notFound();
   const v = parsed(memberInput, input);
   const name = `${v.firstName} ${v.lastName}`;
   let created: Member;
   try {
     created = await db.transaction(async (tx) => {
       await takeAuthorityTurn(tx);
-      const by = await actingStaff(tx, actor);
+      // A new staff account starts with no capabilities; "Manage staff" grants them afterwards.
+      const by = await actingStaff(tx, actor, capabilityOver({ OsmlsRole: v.role }));
       const officeKey = v.role === "agent" ? await officeFor(tx, v.officeKey) : null;
       // The sign-in identity and the member record are made together or not at all.
       const [account] = await tx.insert(user).values({ id: randomUUID(), name, email: v.email }).returning();
@@ -227,7 +251,7 @@ export type MemberFilters = { q?: string; role?: string; status?: string; office
 
 /** Members for the administration list, narrowed by whatever was asked for. Null for anyone who may not administer. */
 export async function listMembers(actor: Member | null, filters: MemberFilters = {}) {
-  if (!canAdminister(actor)) return null;
+  if (!canSeeMembers(actor)) return null;
   const q = filters.q?.trim();
   const like = q ? `%${q.replace(/[\\%_]/g, "\\$&")}%` : null;
   return db
@@ -247,7 +271,7 @@ export async function listMembers(actor: Member | null, filters: MemberFilters =
 
 /** A member's administrative change record, newest first. Null for anyone who may not administer. */
 export async function getMemberHistory(actor: Member | null, key: unknown) {
-  if (!canAdminister(actor) || !isKey(key)) return null;
+  if (!canSeeMembers(actor) || !isKey(key)) return null;
   const by = member;
   return db
     .select({ entry: historyTransactional, changedByName: by.MemberFullName })
@@ -271,14 +295,15 @@ const DETAIL_FIELDS = {
  * on them whatever happens to their agent.
  */
 export async function updateMember(actor: Member | null, key: unknown, input: unknown): Promise<void> {
-  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  if (!canSeeMembers(actor) || !isKey(key)) throw notFound();
   const v = parsed(detailsInput, input);
   try {
     await db.transaction(async (tx) => {
       await takeAuthorityTurn(tx);
-      const by = await actingStaff(tx, actor);
       const [target] = await tx.select().from(member).where(eq(member.MemberKey, key)).for("update");
       if (!target) throw notFound();
+      // Making someone staff, or making staff an agent, is managing staff whichever they are now.
+      const by = v.role !== target.OsmlsRole ? await actingStaff(tx, actor, "staff") : await actingOver(tx, actor, target);
       const changes: Change[] = [];
       const values: Partial<typeof member.$inferInsert> = {};
       for (const column of Object.keys(DETAIL_FIELDS) as (keyof typeof DETAIL_FIELDS)[]) {
@@ -292,11 +317,16 @@ export async function updateMember(actor: Member | null, key: unknown, input: un
       }
       if (v.role !== target.OsmlsRole) {
         if (target.MemberKey === by.MemberKey) throw new ListingError("You cannot change your own role.", { role: "You cannot change your own role." });
-        if (v.role === "agent") await keepOneStaff(tx, target, "made an agent");
+        if (v.role === "agent") await keepOneAdministrator(tx, target, "made an agent");
         const officeKey = v.role === "agent" ? await officeFor(tx, v.officeKey) : null;
         changes.push({ field: "OsmlsRole", previous: target.OsmlsRole, next: v.role, type: "Role Change" });
         if (officeKey !== target.OfficeKey) changes.push({ field: "OfficeKey", previous: target.OfficeKey, next: officeKey, type: "Role Change" });
         Object.assign(values, { OsmlsRole: v.role, OfficeKey: officeKey });
+        // An agent holds no capabilities, so none are waiting if they are made staff again.
+        if (target.OsmlsCapabilities.length > 0) {
+          changes.push({ field: "OsmlsCapabilities", previous: capabilityText(target.OsmlsCapabilities), next: null, type: "Role Change" });
+          values.OsmlsCapabilities = [];
+        }
       }
       if (changes.length === 0) return;
       await tx.update(member).set({ ...values, ModificationTimestamp: new Date() }).where(eq(member.MemberKey, key));
@@ -314,14 +344,14 @@ export async function updateMember(actor: Member | null, key: unknown, input: un
  * already sent stops working: it went to the old address.
  */
 export async function changeMemberEmail(actor: Member | null, key: unknown, input: unknown): Promise<void> {
-  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  if (!canSeeMembers(actor) || !isKey(key)) throw notFound();
   const email = parsed(emailInput, typeof input === "string" ? input.trim() : input);
   try {
     await db.transaction(async (tx) => {
       await takeAuthorityTurn(tx);
-      const by = await actingStaff(tx, actor);
       const [target] = await tx.select().from(member).where(eq(member.MemberKey, key)).for("update");
       if (!target) throw notFound();
+      const by = await actingOver(tx, actor, target);
       if (target.MemberEmail === email) return;
       await tx.update(user).set({ email, updatedAt: new Date() }).where(eq(user.id, target.OsmlsUserId));
       await tx.update(member).set({ MemberEmail: email, ModificationTimestamp: new Date() }).where(eq(member.MemberKey, key));
@@ -338,15 +368,16 @@ export async function changeMemberEmail(actor: Member | null, key: unknown, inpu
  * and it ends any earlier one. The link itself is never recorded.
  */
 export async function sendPasswordLink(actor: Member | null, key: unknown): Promise<PasswordLink> {
-  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  if (!canSeeMembers(actor) || !isKey(key)) throw notFound();
   return issuePasswordLink(key, "reset", async (tx, target) => {
-    const by = await actingStaff(tx, actor);
+    // The target's row is locked here, so its role cannot change under this check.
+    const by = await actingOver(tx, actor, target);
     await record(tx, by, target, [{ field: "Password", previous: null, next: null, type: "Password Link Sent" }]);
   });
 }
 
 export async function getMemberForAdmin(actor: Member | null, key: unknown) {
-  if (!canAdminister(actor) || !isKey(key)) return null;
+  if (!canSeeMembers(actor) || !isKey(key)) return null;
   const [row] = await db
     .select({ member, officeName: office.OfficeName })
     .from(member)
@@ -364,16 +395,16 @@ export const listOffices = () => db.select().from(office).orderBy(asc(office.Off
  * leave the MLS without an active staff account.
  */
 export async function setMemberStatus(actor: Member | null, key: unknown, status: "Active" | "Inactive", reason: unknown): Promise<void> {
-  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  if (!canSeeMembers(actor) || !isKey(key)) throw notFound();
   const why = checkedReason(reason);
   await db.transaction(async (tx) => {
     await takeAuthorityTurn(tx);
-    const by = await actingStaff(tx, actor);
     const [target] = await tx.select().from(member).where(eq(member.MemberKey, key)).for("update");
     if (!target) throw notFound();
+    const by = await actingOver(tx, actor, target);
     if (target.MemberKey === by.MemberKey) throw new ListingError("You cannot suspend or reinstate your own account.");
     if (target.MemberStatus === status) return;
-    if (status === "Inactive") await keepOneStaff(tx, target, "suspended");
+    if (status === "Inactive") await keepOneAdministrator(tx, target, "suspended");
     if (status === "Active" && target.OsmlsRole === "agent") {
       // Read inside the turn, which a deactivation of the office also takes.
       const [theirs] = target.OfficeKey ? await tx.select().from(office).where(eq(office.OfficeKey, target.OfficeKey)) : [];
@@ -398,11 +429,11 @@ export async function setMemberStatus(actor: Member | null, key: unknown, status
  * and the new office's comes, because every request reads the member afresh.
  */
 export async function moveMember(actor: Member | null, key: unknown, officeKey: unknown, reason: unknown): Promise<void> {
-  if (!canAdminister(actor) || !isKey(key)) throw notFound();
+  if (!can(actor, "members") || !isKey(key)) throw notFound();
   const why = checkedReason(reason);
   await db.transaction(async (tx) => {
     await takeAuthorityTurn(tx);
-    const by = await actingStaff(tx, actor);
+    const by = await actingStaff(tx, actor, "members");
     const [target] = await tx.select().from(member).where(eq(member.MemberKey, key)).for("update");
     if (!target) throw notFound();
     if (target.OsmlsRole !== "agent") throw new ListingError("Only an agent has an office.");
@@ -415,6 +446,35 @@ export async function moveMember(actor: Member | null, key: unknown, officeKey: 
     if (destination.OfficeKey === target.OfficeKey) return;
     await tx.update(member).set({ OfficeKey: destination.OfficeKey, ModificationTimestamp: new Date() }).where(eq(member.MemberKey, key));
     await record(tx, by, target, [{ field: "OfficeKey", previous: target.OfficeKey, next: destination.OfficeKey, type: "Office Move", reason: why }]);
+  });
+}
+
+const capabilityText = (held: readonly string[]) => CAPABILITIES.filter((c) => held.includes(c)).join(", ") || null;
+
+/**
+ * Sets which capabilities a staff account holds, with a reason. Only a holder
+ * of "Manage staff" may, read again inside the authority turn. They may change
+ * their own, including giving up "Manage staff", as long as another active
+ * account still holds it.
+ */
+export async function setCapabilities(actor: Member | null, key: unknown, capabilities: unknown, reason: unknown): Promise<void> {
+  if (!can(actor, "staff") || !isKey(key)) throw notFound();
+  const asked = Array.isArray(capabilities) ? capabilities : [];
+  if (!asked.every((c): c is Capability => (CAPABILITIES as readonly unknown[]).includes(c))) throw new ListingError("Choose from the capabilities listed.");
+  const next = CAPABILITIES.filter((c) => asked.includes(c));
+  const why = checkedReason(reason);
+  await db.transaction(async (tx) => {
+    await takeAuthorityTurn(tx);
+    const by = await actingStaff(tx, actor, "staff");
+    const [target] = await tx.select().from(member).where(eq(member.MemberKey, key)).for("update");
+    if (!target) throw notFound();
+    if (target.OsmlsRole !== "staff") throw new ListingError("Only MLS staff hold capabilities.");
+    if (capabilityText(target.OsmlsCapabilities) === capabilityText(next)) return;
+    if (!next.includes("staff")) await keepOneAdministrator(tx, target, "left without it");
+    await tx.update(member).set({ OsmlsCapabilities: next, ModificationTimestamp: new Date() }).where(eq(member.MemberKey, key));
+    await record(tx, by, target, [
+      { field: "OsmlsCapabilities", previous: capabilityText(target.OsmlsCapabilities), next: capabilityText(next), type: "Capabilities Change", reason: why },
+    ]);
   });
 }
 

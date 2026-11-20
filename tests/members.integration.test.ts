@@ -14,6 +14,7 @@ import { account, historyTransactional, member, office, property, savedSearch, s
 import { resumeAlert, sendDueAlerts, setAlertFrequency } from "../src/lib/alerts";
 import { auth } from "../src/lib/auth";
 import { addPhoto, createListing, updateListing } from "../src/lib/listings";
+import { CAPABILITIES } from "../src/lib/lookups";
 import type { Mail } from "../src/lib/mail";
 import {
   changeMemberEmail,
@@ -22,6 +23,7 @@ import {
   getMemberHistory,
   listMembers,
   sendPasswordLink,
+  setCapabilities,
   setMemberStatus,
   setPasswordWithLink,
   updateMember,
@@ -445,7 +447,12 @@ describe("suspension", () => {
 });
 
 describe("staff acting on themselves and on each other", () => {
-  const staffMember = async () => fresh((await add({ role: "staff", officeKey: "" })).member);
+  // A new staff account holds nothing; these tests are about staff who administer.
+  const staffMember = async () => {
+    const made = (await add({ role: "staff", officeKey: "" })).member;
+    await setCapabilities(staff, made.MemberKey, [...CAPABILITIES], "test");
+    return fresh(made);
+  };
   const activeStaff = async (among: Member[]) =>
     (await db.select().from(member).where(and(inArray(member.MemberKey, among.map((m) => m.MemberKey)), eq(member.MemberStatus, "Active"), eq(member.OsmlsRole, "staff")))).length;
   const details = (m: Member) => ({ firstName: m.MemberFirstName, lastName: m.MemberLastName, memberId: m.MemberMlsId, phone: "" });
@@ -521,5 +528,32 @@ describe("finding members and reading the record", () => {
     const text = JSON.stringify(rows);
     for (const secret of [token, second, "never-recorded-pw", (await passwordHash(made))!]) expect(text.includes(secret)).toBe(false);
     expect(await recordOf(made)).toEqual(["New Member MemberStatus:  → Active", "Password Link Sent Password:  → "]);
+  });
+});
+
+/*
+ * The first proof of staff capabilities, by direct call rather than by screen.
+ * The fuller set of capability, escalation, and race tests comes with the rest
+ * of the slice.
+ */
+describe("a staff member who holds only Manage settings", () => {
+  it("is refused every member action, and holds nothing once revoked", async () => {
+    const made = (await add({ role: "staff", officeKey: "" })).member;
+    expect((await fresh(made)).OsmlsCapabilities).toEqual([]);
+    await setCapabilities(staff, made.MemberKey, ["settings"], "settings only");
+    const holder = await fresh(made);
+    const { member: target } = await add();
+
+    expect(await listMembers(holder)).toBeNull();
+    expect(await getMemberForAdmin(holder, target.MemberKey)).toBeNull();
+    await expect(setMemberStatus(holder, target.MemberKey, "Inactive", "no")).rejects.toThrow("Not found.");
+    await expect(changeMemberEmail(holder, target.MemberKey, `taken-${run}@osmls.example`)).rejects.toThrow("Not found.");
+    await expect(sendPasswordLink(holder, target.MemberKey)).rejects.toThrow("Not found.");
+    await expect(createMember(holder, input())).rejects.toThrow("Not found.");
+    // They cannot grant themselves, or anyone, anything.
+    await expect(setCapabilities(holder, holder.MemberKey, [...CAPABILITIES], "more")).rejects.toThrow("Not found.");
+    expect(await fresh(target)).toMatchObject({ MemberStatus: "Active", MemberEmail: target.MemberEmail });
+
+    expect(await recordOf(made)).toContain("Capabilities Change OsmlsCapabilities:  → settings (settings only)");
   });
 });

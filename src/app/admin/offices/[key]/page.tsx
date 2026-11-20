@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
+import { canSeeMembers } from "@/lib/access";
 import { fieldLabel, formatDateTime } from "@/lib/format";
 import { getOfficeForAdmin, listMainOffices } from "@/lib/offices";
 import { requireMember } from "@/lib/session";
@@ -128,9 +129,13 @@ export default async function OfficePage({ params }: { params: Promise<{ key: st
           <ul className="divide-y divide-line text-sm">
             {members.map((m) => (
               <li key={m.MemberKey} className="flex flex-wrap justify-between gap-3 py-2">
-                <Link href={`/admin/members/${m.MemberKey}`} className="text-brand underline">
-                  {m.MemberFullName}
-                </Link>
+                {canSeeMembers(current) ? (
+                  <Link href={`/admin/members/${m.MemberKey}`} className="text-brand underline">
+                    {m.MemberFullName}
+                  </Link>
+                ) : (
+                  <span>{m.MemberFullName}</span>
+                )}
                 <span className="text-muted">
                   {m.MemberMlsId} · {m.MemberStatus === "Active" ? "Active" : "Suspended"}
                 </span>

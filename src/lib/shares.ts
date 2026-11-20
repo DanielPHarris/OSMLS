@@ -5,7 +5,7 @@ import { db } from "../db";
 import { mailBlock, member, office, share, type Media, type Member, type Share } from "../db/schema";
 import { isActive } from "./access";
 import { formatDate } from "./format";
-import { ListingError, getListing, getPhoto, localDate } from "./listings";
+import { ListingError, getListing, getPhoto, mlsDate } from "./listings";
 import { MailError, appUrl, mailEnabled, sendMail } from "./mail";
 import { disclosureLines } from "./reports";
 import { isClientCopyStatus, toClientListing, type ClientListing, type ClientListingSource } from "./rules/client-copy";
@@ -161,7 +161,7 @@ export async function createShare(
         "",
         link,
         "",
-        `This link works until ${formatDate(localDate(expires))}. Reply to this email to reach ${viewer.MemberFullName}.`,
+        `This link works until ${formatDate(await mlsDate(expires))}. Reply to this email to reach ${viewer.MemberFullName}.`,
         "",
         `To stop all email from this system to your address: ${link}/stop`,
       ].join("\n"),

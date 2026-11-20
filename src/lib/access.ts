@@ -1,5 +1,5 @@
 import type { Member, Property } from "../db/schema";
-import type { DocumentPermission } from "./lookups";
+import type { Capability, DocumentPermission } from "./lookups";
 import { SHOWING_OPEN_TO_MEMBERS_STATUSES } from "./rules/status";
 
 /*
@@ -9,7 +9,9 @@ import { SHOWING_OPEN_TO_MEMBERS_STATUSES } from "./rules/status";
  * Each rule names who is allowed. Anyone it does not name is refused.
  */
 
-export type Viewer = Pick<Member, "MemberKey" | "OfficeKey" | "OsmlsRole" | "MemberStatus"> | null;
+export type Viewer =
+  | (Pick<Member, "MemberKey" | "OfficeKey" | "OsmlsRole" | "MemberStatus"> & Partial<Pick<Member, "OsmlsCapabilities">>)
+  | null;
 export type ListingSide = Pick<Property, "ListAgentKey" | "ListOfficeKey" | "StandardStatus">;
 
 /** An inactive (suspended) account can do nothing, whatever its role. */
@@ -20,10 +22,25 @@ export const isActive = (viewer: Viewer): viewer is NonNullable<Viewer> =>
 export const isStaff = (viewer: Viewer): boolean => isActive(viewer) && viewer.OsmlsRole === "staff";
 
 /**
- * Adding members, changing them, and suspending or reinstating their access.
- * Every active MLS staff account may, until finer staff permissions exist.
+ * Administration is divided into capabilities, each held by individual staff
+ * accounts. A capability counts only on an active staff account: recorded on an
+ * agent or a suspended account it allows nothing. Capabilities do not change
+ * what staff may do to listings and documents, which every active staff account
+ * may (isStaff).
  */
-export const canAdminister = (viewer: Viewer): boolean => isStaff(viewer);
+export const can = (viewer: Viewer, capability: Capability): boolean =>
+  isStaff(viewer) && (viewer?.OsmlsCapabilities ?? []).includes(capability);
+
+/**
+ * The capability needed to act on a member: "staff" for a staff account,
+ * "members" for an agent. So someone who manages members cannot take over, or
+ * make, a staff account.
+ */
+export const capabilityOver = (target: Pick<Member, "OsmlsRole">): Capability =>
+  target.OsmlsRole === "staff" ? "staff" : "members";
+
+/** The Members screens are for whoever manages agents or manages staff. */
+export const canSeeMembers = (viewer: Viewer): boolean => can(viewer, "members") || can(viewer, "staff");
 
 const isListingAgent = (viewer: Viewer, listing: ListingSide): boolean =>
   isActive(viewer) && viewer.OsmlsRole === "agent" && viewer.MemberKey === listing.ListAgentKey;

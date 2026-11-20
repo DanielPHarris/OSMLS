@@ -82,6 +82,20 @@ export const LOCK_BOX_TYPES = [
 export const ROLES = ["agent", "staff"] as const;
 export type Role = (typeof ROLES)[number];
 
+/**
+ * What an MLS staff account may administer. Each is held by an individual
+ * account, and only an active staff account's capabilities count for anything.
+ * They divide administration; they do not change what staff may do to listings.
+ */
+export const CAPABILITIES = ["members", "offices", "settings", "staff"] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+export const CAPABILITY_LABELS: Record<Capability, string> = {
+  members: "Manage members",
+  offices: "Manage offices",
+  settings: "Manage settings",
+  staff: "Manage staff",
+};
+
 /** Quote a list of values for use inside a SQL CHECK ... IN (...) clause. */
 export function sqlList(values: readonly string[]): string {
   return values.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");

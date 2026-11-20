@@ -1,18 +1,65 @@
-import { sql, type SQL } from "drizzle-orm";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { desc, sql, type SQL } from "drizzle-orm";
+import { cache } from "react";
 import { db } from "../db";
-import {
-  CONTINUABLE_END_STATUSES,
-  MARKET_TIME_SETTINGS,
-  type MarketTimeSettings,
-} from "./rules/market-time";
+import { marketTimeSettings, type MarketTimeSettingsRow } from "../db/schema";
+import type { StandardStatus } from "./lookups";
+import { CONTINUABLE_END_STATUSES, type MarketTimeSettings } from "./rules/market-time";
 
 /*
  * Days on market (DOM) and cumulative days on market (CDOM).
  *
  * Nothing here is stored. DOM is worked out in the database from a listing's
  * status history, and CDOM by following the chain of earlier listings it
- * continues. Policy comes only from MarketTimeSettings.
+ * continues. Policy comes only from MarketTimeSettings, and the settings come
+ * only from the database (currentSettings): nothing here falls back to the
+ * values in src/lib/rules/market-time.ts, which are only what a new
+ * installation starts with.
  */
+
+/** One stored version of the settings. */
+export type SettingsVersion = MarketTimeSettings & { version: number };
+
+export const toSettings = (row: MarketTimeSettingsRow): SettingsVersion => ({
+  version: row.Version,
+  accumulatingStatuses: row.AccumulatingStatuses as StandardStatus[],
+  relistingGapDays: row.RelistingGapDays,
+  brokerageChangeResets: row.BrokerageChangeResets,
+  addressFallback: row.AddressFallback,
+  gapEndpoint: row.GapEndpoint as MarketTimeSettings["gapEndpoint"],
+  timeZone: row.TimeZone,
+});
+
+/** The newest version, read now. Screens that change the settings use this; everything else uses currentSettings. */
+export async function latestSettings(): Promise<SettingsVersion> {
+  const [row] = await db.select().from(marketTimeSettings).orderBy(desc(marketTimeSettings.Version)).limit(1);
+  if (!row) throw new Error("There are no market-time settings. Run the database migrations.");
+  return toSettings(row);
+}
+
+const forThisRequest = cache(latestSettings);
+const held = new AsyncLocalStorage<SettingsVersion>();
+
+/**
+ * The settings for the operation in progress. One version serves the whole of
+ * it, however many figures and dates it works out; a change saved meanwhile
+ * applies from the next operation.
+ *
+ * How the version is held depends on what the operation is. While a page is
+ * rendered, React keeps one answer for the request. That does not reach a
+ * server action, a route handler, or a script, so each of those that reads the
+ * settings runs inside withOneSettingsVersion. Outside both, each call reads
+ * the newest version.
+ */
+export const currentSettings = async (): Promise<SettingsVersion> => held.getStore() ?? forThisRequest();
+
+/**
+ * Runs an action, a route handler, or background work under one version of the
+ * settings, read as it begins. Work already running under a version keeps it.
+ */
+export async function withOneSettingsVersion<T>(work: () => Promise<T>): Promise<T> {
+  return held.getStore() ? work() : held.run(await latestSettings(), work);
+}
 
 /** What is known about one listing for the purpose of counting market time. */
 export type MarketFacts = {
@@ -72,7 +119,7 @@ const hasParcelIdentity = (x: Identity) =>
  * Whether two listings are of the same property. Deliberately narrow: a wrong
  * match would give one property another's market time.
  */
-export function sameProperty(a: Identity, b: Identity, settings: MarketTimeSettings = MARKET_TIME_SETTINGS): boolean {
+export function sameProperty(a: Identity, b: Identity, settings: MarketTimeSettings): boolean {
   // Units in one building can share a parcel and always share a street address.
   if (text(a.unitNumber) !== text(b.unitNumber)) return false;
 
@@ -107,7 +154,7 @@ type Linkable = Pick<
 export function continuesPredecessor(
   current: Linkable,
   predecessor: Linkable,
-  settings: MarketTimeSettings = MARKET_TIME_SETTINGS,
+  settings: MarketTimeSettings,
 ): boolean {
   // A sale always resets, as does a predecessor that is still running.
   if (!(CONTINUABLE_END_STATUSES as readonly string[]).includes(predecessor.standardStatus)) return false;
@@ -136,7 +183,7 @@ export function continuesPredecessor(
 export function choosePredecessor<T extends Identity & { listingKey: string; enteredAt: Date }>(
   current: T,
   candidates: readonly T[],
-  settings: MarketTimeSettings = MARKET_TIME_SETTINGS,
+  settings: MarketTimeSettings,
 ): T | null {
   let best: T | null = null;
   for (const candidate of candidates) {
@@ -156,7 +203,7 @@ export function choosePredecessor<T extends Identity & { listingKey: string; ent
  * stopped, from its status history. This query is the only place DOM is
  * calculated, so searching, sorting, and display cannot disagree.
  */
-export function marketFactsSql(asOf: Date, settings: MarketTimeSettings = MARKET_TIME_SETTINGS): SQL {
+export function marketFactsSql(asOf: Date, settings: MarketTimeSettings): SQL {
   const accumulating = sql.join(
     settings.accumulatingStatuses.map((s) => sql`${s}`),
     sql`, `,
@@ -233,7 +280,7 @@ export async function getMarketTime(
   options: { asOf?: Date; settings?: MarketTimeSettings } = {},
 ): Promise<Map<string, MarketTime>> {
   const asOf = options.asOf ?? new Date();
-  const settings = options.settings ?? MARKET_TIME_SETTINGS;
+  const settings = options.settings ?? (await currentSettings());
   const keys = [...new Set(listingKeys)].filter((k) => /^[0-9a-f-]{36}$/i.test(k));
   const out = new Map<string, MarketTime>();
   if (keys.length === 0) return out;

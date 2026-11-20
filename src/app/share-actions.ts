@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/app/actions";
 import { formatDate } from "@/lib/format";
-import { ListingError, localDate } from "@/lib/listings";
+import { ListingError, mlsDate } from "@/lib/listings";
+import { withOneSettingsVersion } from "@/lib/market-time";
 import { getCurrentMember } from "@/lib/session";
 import { createShare, revokeShare, stopEmail, type ShareTarget } from "@/lib/shares";
 
@@ -29,7 +30,16 @@ function failure(err: unknown): FormState {
   throw err;
 }
 
-export async function shareAction(target: ShareTarget, _previous: ShareFormState, formData: FormData): Promise<ShareFormState> {
+/*
+ * The email and the message shown afterwards both give the date the link ends,
+ * each worked out in the MLS time zone. One version of the settings serves
+ * both, so they cannot disagree if the time zone is changed meanwhile.
+ */
+export async function shareAction(target: ShareTarget, previous: ShareFormState, formData: FormData): Promise<ShareFormState> {
+  return withOneSettingsVersion(() => share(target, previous, formData));
+}
+
+async function share(target: ShareTarget, _previous: ShareFormState, formData: FormData): Promise<ShareFormState> {
   const current = await viewer();
   let made: Awaited<ReturnType<typeof createShare>>;
   try {
@@ -42,7 +52,7 @@ export async function shareAction(target: ShareTarget, _previous: ShareFormState
     return failure(err);
   }
   revalidatePath("/", "layout");
-  const until = formatDate(localDate(made.expires));
+  const until = formatDate(await mlsDate(made.expires));
   return {
     ok: true,
     link: made.link,
@@ -53,7 +63,7 @@ export async function shareAction(target: ShareTarget, _previous: ShareFormState
 export async function revokeShareAction(shareKey: string): Promise<FormState> {
   const current = await viewer();
   try {
-    await revokeShare(current, shareKey);
+    await withOneSettingsVersion(() => revokeShare(current, shareKey));
   } catch (err) {
     return failure(err);
   }
