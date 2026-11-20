@@ -42,15 +42,23 @@ const held = new AsyncLocalStorage<SettingsVersion>();
 
 /**
  * The settings for the operation in progress. One version serves the whole of
- * it: a page or action reads the settings once however many figures it works
- * out, and background work runs inside withOneSettingsVersion. A change saved
- * meanwhile applies from the next operation.
+ * it, however many figures and dates it works out; a change saved meanwhile
+ * applies from the next operation.
+ *
+ * How the version is held depends on what the operation is. While a page is
+ * rendered, React keeps one answer for the request. That does not reach a
+ * server action, a route handler, or a script, so each of those that reads the
+ * settings runs inside withOneSettingsVersion. Outside both, each call reads
+ * the newest version.
  */
 export const currentSettings = async (): Promise<SettingsVersion> => held.getStore() ?? forThisRequest();
 
-/** Runs work that is not a page or action (the alert run) under one version of the settings. */
+/**
+ * Runs an action, a route handler, or background work under one version of the
+ * settings, read as it begins. Work already running under a version keeps it.
+ */
 export async function withOneSettingsVersion<T>(work: () => Promise<T>): Promise<T> {
-  return held.run(await latestSettings(), work);
+  return held.getStore() ? work() : held.run(await latestSettings(), work);
 }
 
 /** What is known about one listing for the purpose of counting market time. */

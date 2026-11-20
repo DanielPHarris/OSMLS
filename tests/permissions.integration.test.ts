@@ -9,7 +9,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, pool } from "../src/db";
-import { member, office, type Member } from "../src/db/schema";
+import { member, office, verification, type Member } from "../src/db/schema";
 import { CAPABILITIES, type Capability } from "../src/lib/lookups";
 import {
   changeMemberEmail,
@@ -283,14 +283,16 @@ describe("authority and the target are read inside the protected operation", () 
       await other.query("begin");
       await other.query(lock);
       let done = false;
+      let waitedForTheLock = false;
       const waiting = operation().finally(() => (done = true));
       const [result] = await Promise.allSettled([waiting, (async () => {
         await settle();
-        // Still waiting: it cannot have read anything it will rely on yet.
-        expect(done).toBe(false);
+        waitedForTheLock = !done;
         await other.query(change);
         await other.query("commit");
       })()]);
+      // It was held up by the lock, so whatever it relied on it read afterwards.
+      expect(waitedForTheLock).toBe(true);
       return result;
     } finally {
       await other.end();
@@ -347,6 +349,21 @@ describe("authority and the target are read inside the protected operation", () 
           lock: rowOf(t),
           act: () => sendPasswordLink(holder, t.MemberKey),
           unchanged: async () => expect((await getMemberHistory(admin, t.MemberKey))!.map(({ entry }) => entry.ChangeType)).not.toContain("Password Link Sent"),
+        };
+      }],
+      // The revocation holds the turn, as the real one does, and not the target's row.
+      ["members", "a password link, with the revocation holding the authority turn", async (holder) => {
+        const t = await anAgent();
+        const links = async () => (await db.select().from(verification).where(eq(verification.value, t.OsmlsUserId))).map((l) => l.id);
+        const welcomeLink = await links();
+        return {
+          lock: AUTHORITY_TURN,
+          act: () => sendPasswordLink(holder, t.MemberKey),
+          unchanged: async () => {
+            expect((await getMemberHistory(admin, t.MemberKey))!.map(({ entry }) => entry.ChangeType)).not.toContain("Password Link Sent");
+            // Still only the link made with the account: no new one was issued.
+            expect(await links()).toEqual(welcomeLink);
+          },
         };
       }],
       ["staff", "a grant", async (holder) => {

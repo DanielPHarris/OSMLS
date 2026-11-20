@@ -151,7 +151,8 @@ export type PasswordLink = {
  * Makes a one-time link for a member to set their password, ending any earlier
  * one, and emails it. With email off, the link comes back to be passed on.
  *
- * Making the link is one protected step per member: the member's row is locked,
+ * Making the link is one protected step per member, taken in the same turn as
+ * every change to anyone's status, role, or capabilities: the member's row is locked,
  * their identity is read as it is at that moment, the earlier link is ended, and
  * the new one is stored, before anything else may issue a link for them or
  * change their email. So a link is always for the address the member has when
@@ -167,6 +168,10 @@ async function issuePasswordLink(
 ): Promise<PasswordLink> {
   const token = randomBytes(32).toString("base64url");
   const target = await db.transaction(async (tx) => {
+    // The authority turn first, then the member's row, as everywhere else. Without
+    // the turn, a link asked for while a revocation was under way could pass its
+    // check on what the acting member held before, and be made after they held nothing.
+    await takeAuthorityTurn(tx);
     const [row] = await tx.select().from(member).where(eq(member.MemberKey, memberKey)).for("update");
     if (!row) throw notFound();
     await inside?.(tx, row);

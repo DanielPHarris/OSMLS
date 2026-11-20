@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth";
 import { addDocument, removeDocument, replaceDocument, updateDocument } from "@/lib/documents";
 import { MULTI_VALUE_SEPARATOR, type FieldErrors } from "@/lib/listing-input";
 import { ListingError, addPhoto, createListing, removePhoto, updateListing } from "@/lib/listings";
+import { withOneSettingsVersion } from "@/lib/market-time";
 import { getCurrentMember } from "@/lib/session";
 
 export type FormState = {
@@ -65,11 +66,11 @@ export async function saveListing(
   let outcome: string;
   try {
     if (listingKey) {
-      const result = await updateListing(actor, listingKey, values, values.correctionReason);
+      const result = await withOneSettingsVersion(() => updateListing(actor, listingKey, values, values.correctionReason));
       key = result.listing.ListingKey;
       outcome = result.changedFields.length ? "saved" : "unchanged";
     } else {
-      key = (await createListing(actor, values)).ListingKey;
+      key = (await withOneSettingsVersion(() => createListing(actor, values))).ListingKey;
       outcome = "created";
     }
   } catch (err) {
