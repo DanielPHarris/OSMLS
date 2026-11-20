@@ -607,8 +607,11 @@ Linux.
 
 Tests use their own database (`TEST_DATABASE_URL`), which is deleted, re-created,
 and seeded on the same PostgreSQL server at the start of every run. They never write to the development or
-demo database. The browser tests start their own server on port 3210 and use a blank
-local map style, so they do not depend on an outside map service. The sharing tests
+demo database. The browser tests build the application and start their own
+production server on port 3210, and use a blank local map style, so they do not
+depend on an outside map service. They run against the production build because
+the development server closes idle connections after five seconds and cannot be
+told otherwise, which is the likely cause of requests that failed at random. The sharing tests
 send real email to the mail catcher (`docker compose up -d mail`) and read it back. The default map
 service was checked by hand in a production build, at desktop and phone widths.
 
