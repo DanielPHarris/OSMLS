@@ -479,10 +479,54 @@ members' links, and text messages. How an unknown outcome is recognised depends 
 the mail library's error codes; anything not recognised as a refusal is treated as
 unknown.
 
+### Added since 0.1: member administration and access suspension
+
+The first of three slices of "administration". MLS staff can add a member, change
+a member's details and role, and suspend or reinstate a member's access, at
+**Members** in the page header. Offices and brokerages, and finer staff
+permissions, are the other two slices and are not built.
+
+- **Who may.** Every active MLS staff account, until finer staff permissions
+  exist. For anyone else these pages and actions answer "not found".
+- **Adding a member.** Name, email, member ID, role, phone, and for an agent an
+  office. The member record and the sign-in identity are made together or not at
+  all. There is still no public sign-up.
+- **Passwords.** Staff never choose or see one. A new member is emailed a link to
+  set their own: it works once, for 24 hours, and only a hash of it is stored.
+  Staff can have a new link sent; it is always a new link and ends the earlier
+  one. Using a link ends the member's other sessions. With email off, the link is
+  shown once to the staff member to pass on. There is no self-service "forgot
+  password".
+- **Changing an email** changes the sign-in address with it, and ends any password
+  link already sent, since that went to the old address.
+- **Role and office.** Making a member an agent needs an office; making one MLS
+  staff removes it. Moving an agent between offices is not available yet. A
+  listing keeps the office recorded on it whatever happens to its agent.
+- **Suspension.** Needs a reason. It denies access through every session the
+  member has, at once; it does not delete those sessions, so reinstating restores
+  access without a new sign-in. A suspended member can still sign in and is then
+  refused everything. Their client links and photos stop working and their email
+  alerts stop. Nothing of theirs is deleted, and reinstating restores it all.
+- **Guards.** A staff member cannot suspend themself or change their own role.
+  Every change to anyone's status or role is taken one at a time across the MLS,
+  and the acting member's own authority is checked again inside that turn, so two
+  staff who suspend each other at the same moment cannot both succeed.
+- **The record.** Every administrative change is recorded with who made it, the
+  old and new value, when, and the reason where one is required. Staff can read it
+  on the member's page. Passwords and password links are never written to it.
+- **No deletion.** A member is suspended, never removed, because history refers to
+  them.
+
+A rule that the last active staff account cannot be suspended or made an agent is
+also in the code. With the guards above it cannot be reached through the
+application, so no test exercises it; it is there in case a later change opens a
+way.
+
 ### Not yet built
 
-Client accounts and scheduled email to clients, administration screens, compliance flags, imports and exports, a RESO Web API
-endpoint, fair-housing checks on remarks, password reset, and production operations
+Client accounts and scheduled email to clients, offices and brokerages, finer staff
+permissions, self-service password reset, compliance flags, imports and exports, a
+RESO Web API endpoint, fair-housing checks on remarks, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
 
 ## Try it
@@ -550,7 +594,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, and sharing in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, and administration in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -613,6 +657,7 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `SavedSearch.OsmlsAlertGeneration` | Raised by each change the member makes, so a late send cannot undo it |
 | `OsmlsShare` | A link given to a client: who made it, a hash of the link, what it shows, when it expires or was revoked, and the recipient's address while kept |
 | `OsmlsMailBlock` | Keyed hashes of addresses that asked for no more email |
+| `HistoryTransactional.ResourceName` | `Property` for a listing's history; `Member` for an administrative change to a member |
 | `HistoryTransactional.OsmlsStaffCorrection` | Whether MLS staff made the change |
 | `HistoryTransactional.OsmlsCorrectionReason` | The reason staff gave |
 

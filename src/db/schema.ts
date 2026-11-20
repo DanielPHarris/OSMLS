@@ -339,8 +339,6 @@ export const collectionListing = pgTable(
   (t) => [primaryKey({ columns: [t.CollectionKey, t.ListingKey] })],
 );
 
-// ---- Sign-in library tables (Better Auth core schema) ----
-
 /*
  * A link a member gives a client. It holds no listing data: the page it opens is
  * built fresh through the client boundary (src/lib/rules/client-copy.ts) each
@@ -383,6 +381,8 @@ export const mailBlock = pgTable("OsmlsMailBlock", {
   OsmlsAddressHash: text().primaryKey(),
   OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
 });
+
+// ---- Sign-in library tables (Better Auth core schema) ----
 
 export const user = pgTable("user", {
   id: text().primaryKey(),
