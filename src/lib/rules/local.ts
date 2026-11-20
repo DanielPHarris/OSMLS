@@ -37,3 +37,6 @@ export const SHARE_RECORD_RETENTION_DAYS = 30;
 // the mail server refused, or this many whose outcome is not known.
 export const MAX_ALERT_FAILURES = 5;
 export const MAX_UNCERTAIN_ALERT_SENDS = 3;
+// How long a "set your password" link sent by MLS staff works.
+export const PASSWORD_LINK_HOURS = 24;
+export const MIN_PASSWORD_LENGTH = 12;

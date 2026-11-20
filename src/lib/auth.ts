@@ -15,7 +15,11 @@ export function createAuth(options: { allowSignUp?: boolean } = {}) {
       enabled: true,
       disableSignUp: !options.allowSignUp,
       minPasswordLength: 12,
+      // Setting a password through a link signs the member out everywhere else.
+      revokeSessionsOnPasswordReset: true,
     },
+    // Password links are kept only as hashes, so one cannot be read back from the database.
+    verification: { storeIdentifier: "hashed" },
     // nextCookies must be last: it writes the session cookie from server actions.
     plugins: [nextCookies()],
   });

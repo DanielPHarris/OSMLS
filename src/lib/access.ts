@@ -19,6 +19,12 @@ export const isActive = (viewer: Viewer): viewer is NonNullable<Viewer> =>
 /** MLS staff: an active account that affirmatively holds the staff role. */
 export const isStaff = (viewer: Viewer): boolean => isActive(viewer) && viewer.OsmlsRole === "staff";
 
+/**
+ * Adding members, changing them, and suspending or reinstating their access.
+ * Every active MLS staff account may, until finer staff permissions exist.
+ */
+export const canAdminister = (viewer: Viewer): boolean => isStaff(viewer);
+
 const isListingAgent = (viewer: Viewer, listing: ListingSide): boolean =>
   isActive(viewer) && viewer.OsmlsRole === "agent" && viewer.MemberKey === listing.ListAgentKey;
 
