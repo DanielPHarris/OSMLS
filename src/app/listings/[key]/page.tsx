@@ -23,6 +23,9 @@ import { requireMember } from "@/lib/session";
 import { ActionForm } from "@/components/action-form";
 import { ShareSection } from "@/components/share-section";
 import { isClientCopyStatus } from "@/lib/rules/client-copy";
+import { FlagsSection, RelistingLinkSection } from "@/components/flags-section";
+import { isListingSide } from "@/lib/access";
+import { flagsOnListing, getRelistingLink, listFlags } from "@/lib/compliance";
 
 
 const NOTICES: Record<string, string> = {
@@ -49,6 +52,10 @@ export default async function ListingPage({
   const history = canViewHistory(current) ? await getHistory(listing.ListingKey) : null;
   const marketTime = (await getMarketTime([listing.ListingKey])).get(listing.ListingKey);
   const timeline = await getMarketTimeline(listing.ListingKey);
+  // Each of these answers according to the viewer. Only compliance staff are given who raised a flag.
+  const flags = await flagsOnListing(current, listing.ListingKey);
+  const staffFlags = await listFlags(current, { listing: listing.ListingKey });
+  const relistingLink = await getRelistingLink(current, listing.ListingKey);
   // The viewer's own collections only.
   const collections = await collectionsForListing(current, listing.ListingKey);
 
@@ -345,6 +352,8 @@ export default async function ListingPage({
           </table>
         </section>
       )}
+      {relistingLink && <RelistingLinkSection listingKey={listing.ListingKey} link={relistingLink} />}
+      <FlagsSection listingKey={listing.ListingKey} flags={flags} staffFlags={staffFlags} listingSide={isListingSide(current, listing)} />
     </div>
   );
 }

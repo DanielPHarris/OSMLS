@@ -239,8 +239,9 @@ and no adjustments are made between properties.
 
 - Matching by address is fragile: "12 Oak St" and "12 Oak Street" do not match.
 - Matching depends on what was typed. A wrong parcel number, county, or unit can
-  link unrelated listings or miss a real relisting, and staff can correct that
-  only by correcting those fields. There is no tool to link or unlink by hand.
+  link unrelated listings or miss a real relisting. Compliance staff can say
+  which earlier listing a listing continues, or that it continues none (see
+  "compliance flags and relisting links" below).
 - Overlapping listings of one property count their shared days twice, as described
   above. Two open listings of one property should be rare; an MLS that has them
   will want its own rule, and there is no setting for it.
@@ -563,7 +564,7 @@ listings between offices, bulk moves, and licence or membership data.
 
 The third of three slices of "administration".
 
-**Staff permissions.** Administration is divided into four capabilities, each held
+**Staff permissions.** Administration is divided into capabilities, each held
 by individual staff accounts:
 
 | Capability | Allows |
@@ -571,6 +572,7 @@ by individual staff accounts:
 | Manage members | Add, edit, suspend, reinstate and move agents; change their email; send them password links |
 | Manage offices | Add, edit, deactivate and reactivate offices; group them into brokerages |
 | Manage settings | Change the market-time settings |
+| Manage compliance | See and close flags, and say which earlier listing a listing continues (added with compliance flags, below) |
 | Manage staff | Add staff accounts, change a role to or from staff, grant and revoke capabilities, and do any member action to a staff account |
 
 - **They divide administration and nothing else.** Every active staff account can
@@ -594,8 +596,9 @@ by individual staff accounts:
   staff" cannot give it up, be suspended, or be made an agent, including when two
   such changes are made at the same moment. An administrator may give up their
   own while another remains.
-- **Upgrading.** Every existing staff account, active or suspended, is given all
-  four, so nothing changes until someone narrows it.
+- **Upgrading.** Every existing staff account, active or suspended, is given the
+  four capabilities above other than "Manage compliance", so nothing changes
+  until someone narrows it.
 
 **Market-time settings.** Staff who hold "Manage settings" change the six settings
 at **Settings** in the page header. No redeployment or restart is involved.
@@ -626,10 +629,86 @@ Not included: custom roles or groups, staff limited to particular offices,
 permissions for agents or brokers, settings that apply from a date or differ by
 office, and settings for comparables.
 
+### Added since 0.1: compliance flags and relisting links
+
+The charter's "basic compliance workflow": a member flags a problem with a
+listing, and MLS staff track it to a close. It is a record of reports and what
+was done about them. It does not find problems by itself, and it is not legal
+compliance.
+
+**Flags.** On any listing, under **Flags**, any active member can report a
+problem: a category from a fixed list (incorrect information, photos, remarks,
+status not updated, duplicate listing, market time or relisting link, other) and
+a description.
+
+- **A flag changes nothing.** It does not change, hide, or penalise the listing.
+  If something needs correcting, staff correct it the ordinary way, with its own
+  reason and history entry.
+- **Who handles them.** Staff who hold "Manage compliance" see every flag at
+  **Flags** in the page header, narrowed by state, category, and listing office,
+  and close each as Resolved or Dismissed with a note. A closed flag is final; a
+  new problem is a new flag.
+- **Who sees what.**
+
+  | | Compliance staff | The member who raised it | Listing agent and listing office | Anyone else |
+  | --- | --- | --- | --- | --- |
+  | That the flag exists, its category and state | Yes | Their own | On their listing | No |
+  | Description and closing note | Yes | Yes | Yes | No |
+  | Who raised it | Yes | n/a | Never | No |
+  | Who closed it | Yes | No | No | No |
+
+- **Who raised it stays with compliance staff.** What the listing side is given
+  is built without the reporter's name, member ID, email, or office; it is not a
+  full record with parts hidden. But the description and the closing note are
+  free text that the listing side reads, and nothing is redacted, so a flag is
+  only as anonymous as what was typed. The form says so.
+- **Limits.** One open flag per member, per listing, per category, and 20 flags
+  per member per calendar day in the MLS time zone. Both hold when flags are sent
+  at the same moment.
+- **Not on reports.** Flags never appear on agent copies, client copies, or pages
+  shared with clients.
+- **No email.** Flags are seen in the application.
+- **Upgrading.** "Manage compliance" is given to every account that holds "Manage
+  staff".
+
+**Relisting links.** Cumulative days on market follows the earlier listing of the
+same property, found by parcel number and address. On a listing, compliance staff
+can set one of three things, with a reason:
+
+| Setting | Meaning |
+| --- | --- |
+| Automatic (the default) | The earlier listing is found by matching. |
+| None | This listing continues no earlier listing. |
+| A named listing | That listing, given by its listing number, is the earlier one. |
+
+- **Naming a listing settles one question only:** that it is the same property.
+  It is not checked against parcel, address, or the address-fallback setting, so
+  it can repair a match that was missed.
+- **Everything else still applies.** The relisting gap, where the gap ends, the
+  brokerage rule, and how the earlier listing ended still decide whether the
+  count continues. A named listing that fails them stays on record, and the count
+  starts fresh.
+- **Never past a sale.** If the property was sold between the two listings, the
+  link is refused; if such a sale is entered later, the link stops being followed.
+  The sale is recognised by matching, so if it is in truth a different property
+  that was matched by mistake, correct its parcel number or address first.
+- **Only an earlier listing** can be named, so a listing cannot continue itself
+  and chains cannot loop.
+- **It recalculates the past**, like a settings change: figures change wherever
+  they are shown, from the next page or run.
+- **The record.** Each change is in the listing's change history as a staff
+  correction with its reason, which staff can read. Members see the resulting
+  figures and which listings they include, not that staff set them.
+
+Not included: finding problems automatically, fair-housing checks on remarks,
+redacting free text, fines, deadlines, appeals, email about flags, flags on
+members or offices, bulk actions, and rules that two listings are never the same
+property.
+
 ### Not yet built
 
 Client accounts and scheduled email to clients, brokerage-wide access,
-self-service password reset, compliance flags, imports and exports, a
+self-service password reset, imports and exports, a
 RESO Web API endpoint, fair-housing checks on remarks, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
 
@@ -698,7 +777,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, and staff permissions in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, staff permissions, and compliance flags in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -717,7 +796,8 @@ told otherwise, which is the likely cause of requests that failed at random. The
 send real email to the mail catcher (`docker compose up -d mail`) and read it back. The default map
 service was checked by hand in a production build, at desktop and phone widths.
 The staff permissions test changes the market-time settings that other tests'
-figures depend on, so it runs after the rest and puts them back.
+figures depend on, so it runs after the rest and puts them back. The compliance
+test changes one of those figures, so it runs last and does the same.
 
 ## How it is built
 
@@ -754,6 +834,8 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `Member.OsmlsRole` | `agent` or `staff` |
 | `Member.OsmlsCapabilities` | What a staff account may administer |
 | `OsmlsMarketTimeSettings` (table) | The market-time settings, one row per saved version |
+| `OsmlsFlag` (table) | Flags raised on listings, and how each was closed |
+| `OsmlsRelistingLink` (table) | The earlier listing compliance staff said a listing continues, or none |
 | `Member.OsmlsUserId` | Links a member to their sign-in account |
 | `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
 | `Media.OsmlsStoragePath` | Generated file name of the stored photo or document |

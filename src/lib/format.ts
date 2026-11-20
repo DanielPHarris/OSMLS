@@ -30,4 +30,5 @@ export function formatHistoryValue(field: string, value: string | null): string 
 }
 
 /** "ListPrice" -> "List Price" */
-export const fieldLabel = (field: string) => field.replace(/([a-z])([A-Z])/g, "$1 $2");
+export const fieldLabel = (field: string) =>
+  field === "OsmlsRelistingLink" ? "Earlier listing" : field.replace(/([a-z])([A-Z])/g, "$1 $2");

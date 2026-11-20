@@ -6,10 +6,10 @@
  * the request saw when it arrived.
  */
 import { eq, inArray, sql } from "drizzle-orm";
-import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, pool } from "../src/db";
-import { member, office, verification, type Member } from "../src/db/schema";
+import { member, office, property, verification, type Member } from "../src/db/schema";
+import { closeFlag, getRelistingLink, listFlags, raiseFlag, setRelistingLink } from "../src/lib/compliance";
 import { CAPABILITIES, type Capability } from "../src/lib/lookups";
 import {
   changeMemberEmail,
@@ -26,10 +26,12 @@ import {
 import { createOffice, getOfficeForAdmin, listOfficesForAdmin, setMainOffice, setOfficeStatus, updateOffice } from "../src/lib/offices";
 import { getSettingsForAdmin, getSettingsHistory, saveMarketTimeSettings } from "../src/lib/settings";
 import { latestSettings } from "../src/lib/market-time";
+import { AUTHORITY_TURN, overlapping } from "./overlap";
 
 const run = Date.now();
 let admin: Member;
 let offices: { OfficeKey: string; OfficeName: string }[];
+let listingKey: string;
 let serial = 0;
 const smtp = process.env.SMTP_URL;
 
@@ -64,6 +66,7 @@ beforeAll(async () => {
   const members = await db.select().from(member);
   admin = members.find((m) => m.MemberMlsId === "ST0001")!;
   offices = await db.select().from(office).where(eq(office.OfficeStatus, "Active")).orderBy(office.OfficeName);
+  [{ listingKey }] = await db.select({ listingKey: property.ListingKey }).from(property).where(eq(property.StreetName, "Comparable Ct")).limit(1);
 });
 afterAll(async () => {
   process.env.SMTP_URL = smtp;
@@ -105,6 +108,11 @@ const probes: Probe[] = [
   { name: "edit an office", needs: "offices", attempt: async (as) => { const o = await anOffice(); await updateOffice(as, o.OfficeKey, { name: `${o.OfficeName} edited`, officeId: o.OfficeMlsId, phone: "" }); } },
   { name: "put an office under a main office", needs: "offices", attempt: async (as) => setMainOffice(as, (await anOffice()).OfficeKey, (await anOffice()).OfficeKey) },
   { name: "deactivate an office", needs: "offices", attempt: async (as) => setOfficeStatus(as, (await anOffice()).OfficeKey, "Inactive", "probe") },
+  { name: "open the flag queue", needs: "compliance", attempt: (as) => found(listFlags(as)) },
+  { name: "read a listing's relisting link", needs: "compliance", attempt: (as) => found(getRelistingLink(as, listingKey)) },
+  { name: "close a flag", needs: "compliance", attempt: async (as) => closeFlag(as, (await raiseFlag(await anAgent(), listingKey, { category: "Other", description: "probe" })).FlagKey, "Dismissed", "probe") },
+  // Saying again what is already so stores nothing, but is refused all the same without the capability.
+  { name: "change a relisting link", needs: "compliance", attempt: (as) => setRelistingLink(as, listingKey, { mode: "automatic" }, "probe") },
   { name: "open the settings", needs: "settings", attempt: (as) => found(getSettingsForAdmin(as)) },
   { name: "read the settings record", needs: "settings", attempt: (as) => found(getSettingsHistory(as)) },
   // Saving the values already in force stores nothing, but is refused all the same without the capability.
@@ -146,7 +154,7 @@ describe("what each capability allows", () => {
     await setCapabilities(admin, holder.MemberKey, [], "revoked");
     // `holder` still says it holds everything, as a page loaded before the revocation would.
     expect(holder.OsmlsCapabilities).toEqual([...CAPABILITIES]);
-    for (const probe of probes.filter((p) => p.name.match(/^(add|edit|change|send|suspend|move|make|grant|put|deactivate|save)/)))
+    for (const probe of probes.filter((p) => p.name.match(/^(add|edit|change|close|send|suspend|move|make|grant|put|deactivate|save)/)))
       await expect(probe.attempt(holder), probe.name).rejects.toThrow("Not found.");
   });
 });
@@ -271,33 +279,7 @@ describe("someone can always manage staff", () => {
  * operation go on. What the operation then does shows what it read, and when.
  */
 describe("authority and the target are read inside the protected operation", () => {
-  const AUTHORITY_TURN = `select pg_advisory_xact_lock(hashtext('osmls:member:authority'))`;
   const rowOf = (m: Member) => `select 1 from "Member" where "MemberKey" = '${m.MemberKey}' for update`;
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
-
-  /** Starts `operation` while `lock` is held elsewhere, makes `change` under that lock, then lets the operation go on. */
-  async function overlapping<T>(lock: string, change: string, operation: () => Promise<T>): Promise<PromiseSettledResult<T>> {
-    const other = new Client({ connectionString: process.env.DATABASE_URL });
-    await other.connect();
-    try {
-      await other.query("begin");
-      await other.query(lock);
-      let done = false;
-      let waitedForTheLock = false;
-      const waiting = operation().finally(() => (done = true));
-      const [result] = await Promise.allSettled([waiting, (async () => {
-        await settle();
-        waitedForTheLock = !done;
-        await other.query(change);
-        await other.query("commit");
-      })()]);
-      // It was held up by the lock, so whatever it relied on it read afterwards.
-      expect(waitedForTheLock).toBe(true);
-      return result;
-    } finally {
-      await other.end();
-    }
-  }
   const becomesStaff = (m: Member) => `update "Member" set "OsmlsRole" = 'staff', "OfficeKey" = null where "MemberKey" = '${m.MemberKey}'`;
   const losesEverything = (m: Member) => `update "Member" set "OsmlsCapabilities" = '{}' where "MemberKey" = '${m.MemberKey}'`;
 

@@ -87,12 +87,13 @@ export type Role = (typeof ROLES)[number];
  * account, and only an active staff account's capabilities count for anything.
  * They divide administration; they do not change what staff may do to listings.
  */
-export const CAPABILITIES = ["members", "offices", "settings", "staff"] as const;
+export const CAPABILITIES = ["members", "offices", "settings", "compliance", "staff"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   members: "Manage members",
   offices: "Manage offices",
   settings: "Manage settings",
+  compliance: "Manage compliance",
   staff: "Manage staff",
 };
 
@@ -100,3 +101,26 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
 export function sqlList(values: readonly string[]): string {
   return values.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");
 }
+
+/** What a flag on a listing is about. */
+export const FLAG_CATEGORIES = [
+  "Incorrect information",
+  "Photos",
+  "Remarks",
+  "Status not updated",
+  "Duplicate listing",
+  "Market time or relisting link",
+  "Other",
+] as const;
+export type FlagCategory = (typeof FLAG_CATEGORIES)[number];
+
+/** A flag is open until compliance staff close it, one way or the other. Closed is final. */
+export const FLAG_STATES = ["Open", "Resolved", "Dismissed"] as const;
+export type FlagState = (typeof FLAG_STATES)[number];
+
+/**
+ * How the earlier listing a listing continues is chosen: by matching, or by
+ * compliance staff saying there is none, or naming it.
+ */
+export const RELISTING_LINK_MODES = ["automatic", "none", "named"] as const;
+export type RelistingLinkMode = (typeof RELISTING_LINK_MODES)[number];
