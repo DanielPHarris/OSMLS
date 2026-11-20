@@ -402,5 +402,13 @@ Next, in this order unless contributors and the maintainer agree otherwise:
 5. Production operations: monitoring, backups, recovery. Measuring what committing
    listing changes one at a time costs under load belongs here.
 
+Agreed by the maintainer on 2026-11-20: this roadmap ends with items 4 and 5,
+data exchange and then production operations, in that order. What section 4
+defers stays outside it unless the maintainer changes the scope. Finishing the
+roadmap is not production readiness: there is no hosted instance, and wider
+browser and device testing, a security review, and the fair-housing design
+requirements below would still be needed before that could be said. Item 5 has
+no delivery plan yet.
+
 Fair-housing considerations (section 8) are a design requirement and are not yet
 implemented in any feature.
