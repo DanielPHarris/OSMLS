@@ -359,6 +359,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    - Accumulating statuses never include Closed, Canceled, Expired or Withdrawn,
      and the relisting gap is 0 to 365 days.
 3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
+   In progress as one issue and one pull request (issue #27).
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
 5. Production operations: monitoring, backups, recovery. Measuring what committing
