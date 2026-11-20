@@ -120,6 +120,20 @@ describe("raising a flag", () => {
     await expect(raiseFlag(agentFromElsewhere, "not-a-key", about(1))).rejects.toThrow("Not found.");
   });
 
+  it("is refused to a member suspended while the request was waiting", async () => {
+    const l = await listing();
+    const by = await newMember();
+    // The suspension holds the member's row, as the real one does; the request carries what the session saw before it.
+    const result = await overlapping(
+      `select 1 from "Member" where "MemberKey" = '${by.MemberKey}' for update`,
+      `update "Member" set "MemberStatus" = 'Inactive' where "MemberKey" = '${by.MemberKey}'`,
+      () => raiseFlag(by, l.ListingKey, about(0)),
+    );
+    expect(by.MemberStatus).toBe("Active");
+    expect(result).toMatchObject({ status: "rejected", reason: { message: "Not found." } });
+    expect(await db.select().from(flag).where(eq(flag.RaisedByMemberKey, by.MemberKey))).toEqual([]);
+  });
+
   it("needs a listed category and a description of a sensible length", async () => {
     const l = await listing();
     const by = await newMember();

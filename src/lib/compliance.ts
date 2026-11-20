@@ -42,7 +42,8 @@ const isDuplicateOpenFlag = (err: unknown) => {
  * Raises a flag on a listing. Any active member may, on any listing. The two
  * limits (one open flag per member, listing and category; a number per day)
  * are counted with the member's row locked, so flags sent at the same moment
- * are counted in turn. The day is the calendar date in the MLS time zone.
+ * are counted in turn. The member's status is read from that locked row, so a
+ * suspension that commits first is honoured. The day is the calendar date in the MLS time zone.
  *
  * `when` is for tests, which need a flag raised just before or after midnight.
  * No screen or action supplies it.
@@ -59,7 +60,10 @@ export async function raiseFlag(viewer: Member | null, listingKey: unknown, inpu
   const today = await mlsDate(now);
   try {
     return await db.transaction(async (tx) => {
-      await tx.select({ key: member.MemberKey }).from(member).where(eq(member.MemberKey, viewer.MemberKey)).for("update");
+      // Locked, then read: the member as they are now, not as the request saw them.
+      // One suspended while this was waiting for the lock raises nothing.
+      const [self] = await tx.select().from(member).where(eq(member.MemberKey, viewer.MemberKey)).for("update");
+      if (!isActive(self ?? null)) throw notFound();
       const [listing] = await tx.select({ key: property.ListingKey }).from(property).where(eq(property.ListingKey, listingKey));
       if (!listing) throw notFound();
       const [{ raisedToday }] = await tx
