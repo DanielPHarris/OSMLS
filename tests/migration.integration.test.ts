@@ -113,4 +113,21 @@ describe("upgrading an installation that already has staff", () => {
     const { rows: tables } = await scratch.query(`select count(*)::int as n from "OsmlsFlag"`);
     expect(tables[0].n).toBe(0);
   });
+
+  it("then gives Manage data access to whoever holds Manage staff, and to no one else", async () => {
+    await apply("0013_data_exchange.sql");
+    const again = readFileSync(join("drizzle", "0013_data_exchange.sql"), "utf8").split("--> statement-breakpoint").pop()!;
+    await scratch.query(again);
+    const { rows } = await scratch.query(`select "MemberMlsId" as id, "OsmlsCapabilities" as held from "Member" order by "MemberMlsId"`);
+    expect(rows).toEqual([
+      { id: "A1", held: [] },
+      { id: "A2", held: [] },
+      { id: "S1", held: ["members", "offices", "settings", "staff", "compliance", "data"] },
+      { id: "S2", held: ["members"] },
+      { id: "S3", held: ["members", "offices", "settings", "staff", "compliance", "data"] },
+      { id: "S4", held: ["members", "offices", "settings"] },
+    ]);
+    const { rows: consumers } = await scratch.query(`select count(*)::int as n from "OsmlsDataConsumer"`);
+    expect(consumers[0].n).toBe(0);
+  });
 });

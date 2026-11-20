@@ -15,7 +15,7 @@ const password = process.env.DEMO_PASSWORD!;
 const run = Date.now();
 const DESCRIPTION = `Proof ${run}: this counts an earlier listing of a different property.`;
 const NOTE = `Proof ${run}: unlinked from the earlier listing.`;
-const CAPABILITIES = ["Manage members", "Manage offices", "Manage settings", "Manage compliance", "Manage staff"];
+const CAPABILITIES = ["Manage members", "Manage offices", "Manage settings", "Manage compliance", "Manage data access", "Manage staff"];
 // Who raised the flag: nothing of this may reach the listing side.
 const REPORTER = { email: "alex.rivera@osmls.example", traces: ["Alex", "Rivera", "AG1001", "alex.rivera"] };
 

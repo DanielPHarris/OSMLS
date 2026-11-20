@@ -11,10 +11,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GET as feed } from "../src/app/api/reso/[[...path]]/route";
 import { GET as photoRoute } from "../src/app/api/reso-photo/[key]/route";
 import { db, pool } from "../src/db";
-import { dataConsumer, dataRequest, member, type Member } from "../src/db/schema";
+import { dataConsumer, dataRequest, member, property, type Member } from "../src/db/schema";
 import { createDataConsumer, listDataConsumers, metadataDocument, revokeDataConsumer } from "../src/lib/data-exchange";
 import { addDocument } from "../src/lib/documents";
-import { addPhoto, createListing } from "../src/lib/listings";
+import { addPhoto, createListing, updateListing } from "../src/lib/listings";
 import { SERVED_RESOURCES, servedResource } from "../src/lib/rules/data-exchange";
 
 const run = Date.now();
@@ -145,6 +145,45 @@ describe("the first proof of the data exchange feed", () => {
     expect((await get(query, token)).status).toBe(401);
     expect((await get("/$metadata", token)).status).toBe(401);
     expect((await getPhoto(photo.MediaKey, token)).status).toBe(401);
+  });
+
+  it("gives every record once when records change between one page and the next", async () => {
+    const { token } = await createDataConsumer(admin, { name: `Proof ${run} paging` });
+    const city = `Paging${run}`;
+    const fields = (price: number) => ({
+      StandardStatus: "Active", PropertyType: "Residential", ListPrice: String(price), ListingContractDate: "2026-01-01",
+      StreetNumber: String(price), StreetName: "Paging Rd", City: city, StateOrProvince: "WA", PostalCode: "98992", BedroomsTotal: "3", BathroomsTotalInteger: "2",
+    });
+    const page = async (path: string) => (await get(path.replace(ROOT, ""), token)).json();
+    const prices = (body: { value: { ListPrice: number }[] }) => body.value.map((r) => r.ListPrice);
+    const query = `/Property?$filter=City eq '${city}'&$select=ListingKey,ListPrice&$orderby=ListPrice desc&$top=2`;
+
+    // A record that sorts ahead of the page already read must not push one back into the next page.
+    for (const price of [300000, 200000, 100000]) await createListing(agent, fields(price));
+    const first = await page(query);
+    expect(prices(first)).toEqual([300000, 200000]);
+    await createListing(agent, fields(400000));
+    const second = await page(first["@odata.nextLink"]);
+    expect(prices(second)).toEqual([100000]);
+    expect(second["@odata.nextLink"]).toBeUndefined();
+
+    // A record that moves behind the reader must not make the reader miss the one after it.
+    const again = await page(query);
+    expect(prices(again)).toEqual([400000, 300000]);
+    const moved = again.value[0];
+    const [row] = await db.select().from(property).where(eq(property.ListingKey, moved.ListingKey));
+    await updateListing(agent, row.ListingKey, { ...fields(400000), ListPrice: "50000" });
+    const rest = [];
+    for (let next = again["@odata.nextLink"]; next; ) {
+      const body = await page(next);
+      rest.push(...prices(body));
+      next = body["@odata.nextLink"];
+    }
+    // 200000 and 100000 are both still to come; the moved record, now last, is read again with its new price.
+    expect(rest).toEqual([200000, 100000, 50000]);
+
+    // A link that has been tampered with is refused, not guessed at.
+    expect((await get(`${query}&$skiptoken=not-a-token`, token)).status).toBe(400);
   });
 
   it("is managed only by staff who hold Manage data access", async () => {

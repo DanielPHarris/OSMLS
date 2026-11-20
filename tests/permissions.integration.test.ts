@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, pool } from "../src/db";
 import { member, office, property, verification, type Member } from "../src/db/schema";
 import { closeFlag, getRelistingLink, listFlags, raiseFlag, setRelistingLink } from "../src/lib/compliance";
+import { createDataConsumer, listDataConsumers, revokeDataConsumer } from "../src/lib/data-exchange";
 import { CAPABILITIES, type Capability } from "../src/lib/lookups";
 import {
   changeMemberEmail,
@@ -113,6 +114,9 @@ const probes: Probe[] = [
   { name: "close a flag", needs: "compliance", attempt: async (as) => closeFlag(as, (await raiseFlag(await anAgent(), listingKey, { category: "Other", description: "probe" })).FlagKey, "Dismissed", "probe") },
   // Saying again what is already so stores nothing, but is refused all the same without the capability.
   { name: "change a relisting link", needs: "compliance", attempt: (as) => setRelistingLink(as, listingKey, { mode: "automatic" }, "probe") },
+  { name: "list data consumers", needs: "data", attempt: (as) => found(listDataConsumers(as)) },
+  { name: "add a data consumer", needs: "data", attempt: (as) => createDataConsumer(as, { name: `Probe ${run}-${++serial}` }) },
+  { name: "revoke a data consumer", needs: "data", attempt: async (as) => revokeDataConsumer(as, (await createDataConsumer(admin, { name: `Probe ${run}-${++serial}` })).consumer.ConsumerKey) },
   { name: "open the settings", needs: "settings", attempt: (as) => found(getSettingsForAdmin(as)) },
   { name: "read the settings record", needs: "settings", attempt: (as) => found(getSettingsHistory(as)) },
   // Saving the values already in force stores nothing, but is refused all the same without the capability.
@@ -154,7 +158,7 @@ describe("what each capability allows", () => {
     await setCapabilities(admin, holder.MemberKey, [], "revoked");
     // `holder` still says it holds everything, as a page loaded before the revocation would.
     expect(holder.OsmlsCapabilities).toEqual([...CAPABILITIES]);
-    for (const probe of probes.filter((p) => p.name.match(/^(add|edit|change|close|send|suspend|move|make|grant|put|deactivate|save)/)))
+    for (const probe of probes.filter((p) => p.name.match(/^(add|edit|change|close|revoke|send|suspend|move|make|grant|put|deactivate|save)/)))
       await expect(probe.attempt(holder), probe.name).rejects.toThrow("Not found.");
   });
 });

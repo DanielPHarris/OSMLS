@@ -87,6 +87,8 @@ export async function listDataConsumers(actor: Member | null) {
       createdBy: member.MemberFullName,
       expiresAt: dataConsumer.ExpirationTimestamp,
       revokedAt: dataConsumer.RevokedTimestamp,
+      // Decided by the database's clock, the same one a request's token is checked against.
+      state: sql<"Active" | "Expired" | "Revoked">`case when ${dataConsumer.RevokedTimestamp} is not null then 'Revoked' when ${dataConsumer.ExpirationTimestamp} <= now() then 'Expired' else 'Active' end`,
       requests: sql<number>`(select count(*)::int from "OsmlsDataRequest" r where r."ConsumerKey" = "OsmlsDataConsumer"."ConsumerKey")`,
       lastRequestAt: sql<Date | null>`(select max(r."RequestTimestamp") from "OsmlsDataRequest" r where r."ConsumerKey" = "OsmlsDataConsumer"."ConsumerKey")`,
     })
@@ -106,9 +108,14 @@ export async function consumerFor(authorization: string | null): Promise<DataCon
   const [found] = await db
     .select()
     .from(dataConsumer)
-    .where(and(eq(dataConsumer.OsmlsTokenHash, hashToken(match[1])), isNull(dataConsumer.RevokedTimestamp)));
-  if (!found || (found.ExpirationTimestamp && found.ExpirationTimestamp.getTime() <= Date.now())) return null;
-  return found;
+    .where(
+      and(
+        eq(dataConsumer.OsmlsTokenHash, hashToken(match[1])),
+        isNull(dataConsumer.RevokedTimestamp),
+        sql`(${dataConsumer.ExpirationTimestamp} is null or ${dataConsumer.ExpirationTimestamp} > now())`,
+      ),
+    );
+  return found ?? null;
 }
 
 /** Records what a data consumer asked for and how many records it was given. */
@@ -155,6 +162,52 @@ function condition(filter: Filter): SQL {
   return sql`${left} ${operator} ${value(field, v)}`;
 }
 
+/** A stored field as it is sorted and compared when paging. Text, keys included, so one expression serves both. */
+const sortable = (f: ServedField): SQL => (f.type === "Edm.String" ? sql`${column(f)}::text` : sql`${column(f)}`);
+const KEY_ORDER = (keyField: ServedField) => sql`${column(keyField)}::text collate "C"`;
+
+function comparable(f: ServedField, v: string): SQL {
+  if (f.type === "Edm.Date") return sql`${v}::date`;
+  if (f.type === "Edm.DateTimeOffset") return sql`${v}::timestamptz`;
+  if (f.type === "Edm.String") return sql`${v}::text`;
+  return sql`${v}::numeric`;
+}
+
+/**
+ * Where the next page starts: after the last record of the page before, in the
+ * order asked for. A page link carries that record's place (its values of the
+ * order fields, and its key) and not a count of records to skip, so a record
+ * added or moved while a consumer is reading cannot make it repeat or miss one.
+ */
+function after(order: readonly { field: ServedField; descending: boolean }[], keyField: ServedField, place: (string | null)[]): SQL {
+  const same = (i: number) => (place[i] === null ? sql`${sortable(order[i].field)} is null` : sql`${sortable(order[i].field)} = ${comparable(order[i].field, place[i]!)}`);
+  const beyond = (i: number): SQL => {
+    const { field, descending } = order[i];
+    const v = place[i];
+    // Ascending puts empty values first; descending puts them last.
+    if (!descending) return v === null ? sql`${sortable(field)} is not null` : sql`${sortable(field)} > ${comparable(field, v)}`;
+    return v === null ? sql`false` : sql`(${sortable(field)} < ${comparable(field, v)} or ${sortable(field)} is null)`;
+  };
+  const alternatives: SQL[] = [];
+  for (let i = 0; i <= order.length; i++) {
+    const ties = Array.from({ length: i }, (_, j) => same(j));
+    const then = i === order.length ? sql`${KEY_ORDER(keyField)} > ${place[i]!}` : beyond(i);
+    alternatives.push(sql`(${sql.join([...ties, then], sql` and `)})`);
+  }
+  return sql`(${sql.join(alternatives, sql` or `)})`;
+}
+
+const encodePlace = (place: (string | null)[]) => Buffer.from(JSON.stringify(place)).toString("base64url");
+function decodePlace(token: string, length: number): (string | null)[] {
+  try {
+    const place: unknown = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
+    if (Array.isArray(place) && place.length === length && place.every((v) => v === null || typeof v === "string") && typeof place[length - 1] === "string") return place;
+  } catch {
+    // Falls through to the refusal below.
+  }
+  throw new ODataError("$skiptoken is not one this service gave for this query.");
+}
+
 export type Page = {
   context: string;
   count?: number;
@@ -189,7 +242,7 @@ export async function readResource(resourceName: string, params: URLSearchParams
   const resource = servedResource(resourceName);
   if (!resource) throw new ODataError(`There is no resource "${resourceName}".`, 404, "NotFound");
   for (const name of params.keys()) {
-    if (!["$select", "$filter", "$orderby", "$top", "$skip", "$count", "$format"].includes(name)) throw new ODataError(`The query option "${name}" is not supported.`);
+    if (!["$select", "$filter", "$orderby", "$top", "$skip", "$skiptoken", "$count", "$format"].includes(name)) throw new ODataError(`The query option "${name}" is not supported.`);
   }
   const selected = parseSelect(resource, params.get("$select"));
   const all = !params.get("$select") || params.get("$select")!.trim() === "*";
@@ -197,12 +250,15 @@ export async function readResource(resourceName: string, params: URLSearchParams
   const order = key === undefined ? parseOrderBy(resource, params.get("$orderby")) : [];
   const top = Math.min(parseCount("$top", params.get("$top"), DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
   const skip = parseCount("$skip", params.get("$skip"), 0);
+  const token = key === undefined ? params.get("$skiptoken") : null;
+  if (token !== null && params.get("$skip") !== null) throw new ODataError("Use $skip or $skiptoken, not both.");
   const wantsCount = params.get("$count") === "true";
   if (params.get("$count") && !["true", "false"].includes(params.get("$count")!)) throw new ODataError("$count must be true or false.");
 
   const keyField = resource.fields.find((f) => f.name === resource.key)!;
   const table = sql.identifier(resource.table);
-  const where = sql.join(
+  // What the result is, without regard to which page of it is wanted.
+  const matching = sql.join(
     [
       resource.only ? sql.raw(`(${resource.only})`) : sql`true`,
       filter ? condition(filter) : sql`true`,
@@ -210,13 +266,19 @@ export async function readResource(resourceName: string, params: URLSearchParams
     ],
     sql` and `,
   );
+  const where = token === null ? matching : sql`${matching} and ${after(order, keyField, decodePlace(token, order.length + 1))}`;
   const columns = sql.join(
-    [sql`${column(keyField)}::text as "__key"`, ...selected.filter((f) => !f.derived).map((f) => sql`${output(f)} as ${sql.identifier(f.name)}`)],
+    [
+      sql`${column(keyField)}::text as "__key"`,
+      // Each record's place in the order, for the link to the page after it.
+      ...order.map((o, i) => sql`${column(o.field)}::text as ${sql.identifier(`__place${i}`)}`),
+      ...selected.filter((f) => !f.derived).map((f) => sql`${output(f)} as ${sql.identifier(f.name)}`),
+    ],
     sql`, `,
   );
-  // Always ending in the key, so the order is the same from one page to the next.
+  // Always ending in the key, so no two records share a place and the order never varies.
   const ordering = sql.join(
-    [...order.map((o) => (o.descending ? sql`${column(o.field)} desc nulls last` : sql`${column(o.field)} asc nulls first`)), sql`${column(keyField)} asc`],
+    [...order.map((o) => (o.descending ? sql`${sortable(o.field)} desc nulls last` : sql`${sortable(o.field)} asc nulls first`)), sql`${KEY_ORDER(keyField)} asc`],
     sql`, `,
   );
 
@@ -231,10 +293,13 @@ export async function readResource(resourceName: string, params: URLSearchParams
       return { "@odata.context": contextFor(resource, selected, all, true), ...shaped[0] };
     }
     const page: Page = { context: contextFor(resource, selected, all), value: shaped };
-    if (wantsCount) page.count = Number((await db.execute(sql`select count(*)::int as n from ${table} where ${where}`)).rows[0].n);
-    if (found.length > top) {
+    // The count is of the whole result, whichever page this is.
+    if (wantsCount) page.count = Number((await db.execute(sql`select count(*)::int as n from ${table} where ${matching}`)).rows[0].n);
+    if (found.length > top && rows.length > 0) {
+      const last = rows[rows.length - 1];
       const next = new URLSearchParams(params);
-      next.set("$skip", String(skip + top));
+      next.delete("$skip");
+      next.set("$skiptoken", encodePlace([...order.map((_, i) => (last[`__place${i}`] as string | null) ?? null), String(last.__key)]));
       next.set("$top", String(top));
       page.nextLink = `${serviceRoot()}/${resource.name}?${next.toString().replace(/%24/g, "$")}`;
     }
