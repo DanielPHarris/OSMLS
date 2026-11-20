@@ -60,6 +60,13 @@ production-ready.**
   ends. Email cannot be delivered exactly once: an alert whose outcome is not
   known is retried up to three sends, then pauses and says so. Bounces are not
   handled.
+- Administration is under way: slice 1 of 3 is delivered. MLS staff can add
+  members, change their details, role and sign-in email, send password links,
+  and suspend or reinstate access with a reason, all recorded. Tests cover every
+  kind of viewer, overlapping staff actions, and overlapping password links and
+  email changes. Offices and brokerages (slice 2) and finer staff permissions
+  with editable market-time settings (slice 3) are not built, so the phase is
+  not complete.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -312,12 +319,17 @@ Next, in this order unless contributors and the maintainer agree otherwise:
 
    | Slice | Delivers | Status |
    | --- | --- | --- |
-   | 1 | Member administration and access suspension | In progress (issue #20) |
+   | 1 | Member administration and access suspension | Done 2026-11-19 (issue #20) |
    | 2 | Offices and brokerages: create, edit, deactivate, and move members between them | Not started |
    | 3 | Finer-grained staff permissions, and market-time settings changed without a redeployment | Not started |
 
    Until slice 3, every active MLS staff account may administer. Members are
    suspended, never deleted, because history refers to them.
+
+   Decided by the maintainer on 2026-11-19 for slice 1: a member sets their own
+   password through a one-time emailed link and there is no self-service reset;
+   a suspended account can still sign in and is then refused everything; and a
+   suspended agent's listings stay as they are.
 3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
