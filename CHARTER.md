@@ -38,8 +38,8 @@ production-ready.**
   of the system is a usage restriction, not a guarantee.
 - Market research is implemented: sold search, days on market and cumulative days
   on market, a member timeline, and comparables. The market-time rules are six
-  settings with defaults, not a standard; changing one takes a redeployment and
-  recalculates past figures. Every worked example from the design is a test, each
+  settings, not a standard; staff who hold "Manage settings" change them on a
+  screen, and a change recalculates past figures. Every worked example from the design is a test, each
   setting has a test showing it changes the result, and a browser test covers the
   screens against seeded data. Comparables are not a valuation.
 - Saved work, sharing, and alerts is implemented: all four slices are
@@ -60,15 +60,21 @@ production-ready.**
   ends. Email cannot be delivered exactly once: an alert whose outcome is not
   known is retried up to three sends, then pauses and says so. Bounces are not
   handled.
-- Administration is under way: slices 1 and 2 of 3 are delivered. MLS staff can
+- Administration is implemented: all three slices are delivered. MLS staff can
   add members, change their details, role and sign-in email, send password
   links, and suspend or reinstate access with a reason, all recorded. They can
   add offices, group them into brokerages, deactivate and reactivate them, and
   move agents between them; an active agent is always in an active office, and
   an active branch always has an active main office. Tests cover every kind of
-  viewer and the overlapping actions that could break those rules. Finer staff
-  permissions with editable market-time settings (slice 3) are not built, so
-  the phase is not complete.
+  viewer and the overlapping actions that could break those rules.
+  Administration is divided into four capabilities held by individual staff
+  accounts (manage members, offices, settings, staff), read again inside each
+  protected operation; managing members does not allow acting on staff
+  accounts, and someone can always manage staff. The six market-time settings
+  are kept as versions in the database and changed on a screen with a reason;
+  each page, action and alert run uses one version throughout. There are no
+  custom roles, no staff limited to particular offices, and no settings that
+  apply from a date.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -152,8 +158,9 @@ Out of 0.1, planned for later releases (see section 10):
 - Map search (since added; see section 10).
 - Documents and showing instructions (since added; see section 10).
 - Sold-record research, DOM/CDOM, comparables (since added; see section 10).
-- Saved searches, collections, email sharing, reports, alerts.
-- Administration screens and access suspension.
+- Saved searches, collections, email sharing, reports, alerts (since added; see
+  section 10).
+- Administration screens and access suspension (since added; see section 10).
 - Compliance flags.
 - Imports, exports, and a RESO Web API endpoint.
 - Production operations: monitoring, backups, recovery.
@@ -323,10 +330,10 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | --- | --- | --- |
    | 1 | Member administration and access suspension | Done 2026-11-19 (issue #20) |
    | 2 | Offices and brokerages: create, edit, deactivate, and move members between them | Done 2026-11-19 (issue #23) |
-   | 3 | Finer-grained staff permissions, and market-time settings changed without a redeployment | In progress (issue #25) |
+   | 3 | Finer-grained staff permissions, and market-time settings changed without a redeployment | Done 2026-11-20 (issue #25) |
 
-   Until slice 3, every active MLS staff account may administer. Members are
-   suspended, never deleted, because history refers to them.
+   All three slices are done, so this phase is complete. Members are suspended,
+   never deleted, because history refers to them.
 
    Decided by the maintainer on 2026-11-19 for slice 1: a member sets their own
    password through a one-time emailed link and there is no self-service reset;
@@ -337,6 +344,20 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    office with branches, one level deep, with no separate record; an office with
    active agents cannot be deactivated; a moved agent's listings stay with the
    office recorded on them; and access stays per office, not per brokerage.
+
+   Decided by the maintainer on 2026-11-20 for slice 3:
+   - Four capabilities, held per account, with no custom roles or groups.
+   - A new staff account starts with none, and making staff an agent clears
+     theirs.
+   - Every active staff account keeps its powers over listings and documents;
+     the capabilities divide administration only.
+   - An administrator may give up managing staff while another active
+     administrator remains.
+   - All six market-time settings are editable, including the time zone.
+   - A change recalculates every listing's figures, with no effective dates and
+     no stored snapshots.
+   - Accumulating statuses never include Closed, Canceled, Expired or Withdrawn,
+     and the relisting gap is 0 to 365 days.
 3. Compliance flags. A tool to correct a wrongly linked relisting belongs here.
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
