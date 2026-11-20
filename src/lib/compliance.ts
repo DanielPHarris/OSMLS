@@ -43,8 +43,11 @@ const isDuplicateOpenFlag = (err: unknown) => {
  * limits (one open flag per member, listing and category; a number per day)
  * are counted with the member's row locked, so flags sent at the same moment
  * are counted in turn. The day is the calendar date in the MLS time zone.
+ *
+ * `when` is for tests, which need a flag raised just before or after midnight.
+ * No screen or action supplies it.
  */
-export async function raiseFlag(viewer: Member | null, listingKey: unknown, input: unknown): Promise<Flag> {
+export async function raiseFlag(viewer: Member | null, listingKey: unknown, input: unknown, when: { at?: Date } = {}): Promise<Flag> {
   if (!isActive(viewer) || !isKey(listingKey)) throw notFound();
   const parsed = flagInput.safeParse(input);
   if (!parsed.success) {
@@ -52,7 +55,8 @@ export async function raiseFlag(viewer: Member | null, listingKey: unknown, inpu
     throw new ListingError(Object.values(errors)[0], errors);
   }
   const { category, description } = parsed.data;
-  const today = await mlsDate(new Date());
+  const now = when.at ?? new Date();
+  const today = await mlsDate(now);
   try {
     return await db.transaction(async (tx) => {
       await tx.select({ key: member.MemberKey }).from(member).where(eq(member.MemberKey, viewer.MemberKey)).for("update");
@@ -67,7 +71,7 @@ export async function raiseFlag(viewer: Member | null, listingKey: unknown, inpu
       }
       const [row] = await tx
         .insert(flag)
-        .values({ ListingKey: listingKey, RaisedByMemberKey: viewer.MemberKey, Category: category, Description: description, RaisedDate: today })
+        .values({ ListingKey: listingKey, RaisedByMemberKey: viewer.MemberKey, Category: category, Description: description, RaisedTimestamp: now, RaisedDate: today })
         .returning();
       return row;
     });

@@ -39,7 +39,7 @@ afterAll(async () => {
   await admin.end();
 });
 
-describe("upgrading to staff capabilities and stored settings", () => {
+describe("upgrading an installation that already has staff", () => {
   it("gives every existing staff account all four capabilities, agents none, and stores the starting settings", async () => {
     const people: [id: string, role: string, status: string][] = [
       ["S1", "staff", "Active"],
@@ -89,5 +89,28 @@ describe("upgrading to staff capabilities and stored settings", () => {
        values ('S4', 'S4', 'S4', 'S4', 'S4@osmls.example', 'staff', 'S4') returning "OsmlsCapabilities" as held`,
     );
     expect(added.held).toEqual([]);
+  });
+
+  it("then gives Manage compliance to whoever holds Manage staff, and to no one else", async () => {
+    // Before this upgrade, one staff account was narrowed and another had given up managing staff.
+    await scratch.query(`update "Member" set "OsmlsCapabilities" = '{members}' where "MemberMlsId" = 'S2'`);
+    await scratch.query(`update "Member" set "OsmlsCapabilities" = '{members,offices,settings}' where "MemberMlsId" = 'S4'`);
+
+    await apply("0012_compliance_flags.sql");
+    // Applying the capability step twice gives it once.
+    const again = readFileSync(join("drizzle", "0012_compliance_flags.sql"), "utf8").split("--> statement-breakpoint").pop()!;
+    await scratch.query(again);
+
+    const { rows } = await scratch.query(`select "MemberMlsId" as id, "OsmlsCapabilities" as held from "Member" order by "MemberMlsId"`);
+    expect(rows).toEqual([
+      { id: "A1", held: [] },
+      { id: "A2", held: [] },
+      { id: "S1", held: ["members", "offices", "settings", "staff", "compliance"] },
+      { id: "S2", held: ["members"] },
+      { id: "S3", held: ["members", "offices", "settings", "staff", "compliance"] },
+      { id: "S4", held: ["members", "offices", "settings"] },
+    ]);
+    const { rows: tables } = await scratch.query(`select count(*)::int as n from "OsmlsFlag"`);
+    expect(tables[0].n).toBe(0);
   });
 });
