@@ -9,7 +9,7 @@ import { db, pool } from "../src/db";
 import { member, type Member } from "../src/db/schema";
 import { createListing, updateListing } from "../src/lib/listings";
 import { getMarketTime } from "../src/lib/market-time";
-import { MARKET_TIME_SETTINGS, type MarketTimeSettings } from "../src/lib/rules/market-time";
+import { STARTING_MARKET_TIME_SETTINGS, type MarketTimeSettings } from "../src/lib/rules/market-time";
 
 let agents: { harborMain: Member; harborBranch: Member; summit: Member; staff: Member };
 
@@ -51,7 +51,7 @@ async function listing(steps: Step[], options: Options = {}) {
 }
 
 const marketTime = async (key: string, asOf: string, settings?: Partial<MarketTimeSettings>) => {
-  const all = await getMarketTime([key], { asOf: on(asOf), settings: { ...MARKET_TIME_SETTINGS, ...settings } });
+  const all = await getMarketTime([key], { asOf: on(asOf), settings: { ...STARTING_MARKET_TIME_SETTINGS, ...settings } });
   const { daysOnMarket, cumulativeDaysOnMarket } = all.get(key)!;
   return { dom: daysOnMarket, cdom: cumulativeDaysOnMarket };
 };

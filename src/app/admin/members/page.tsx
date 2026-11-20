@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MemberForm } from "@/components/member-form";
+import { can } from "@/lib/access";
 import { listMembers, listOffices } from "@/lib/members";
 import { requireMember } from "@/lib/session";
 import { createMemberAction } from "../../admin-actions";
@@ -14,6 +15,7 @@ export default async function MembersPage({ searchParams }: { searchParams: Prom
   const members = await listMembers(current, filters);
   if (!members) notFound();
   const offices = await listOffices();
+  const roles = [...(can(current, "members") ? (["agent"] as const) : []), ...(can(current, "staff") ? (["staff"] as const) : [])];
   return (
     <div className="space-y-6">
       <div>
@@ -25,10 +27,12 @@ export default async function MembersPage({ searchParams }: { searchParams: Prom
           Add a member
         </h2>
         <p className="mb-3 text-sm text-muted">
-          You do not choose their password. They are emailed a link, good once and for 24 hours, to set their own.
+          You do not choose their password. They are emailed a link, good once and for 24 hours, to set their own. A new
+          MLS staff account can administer nothing until it is given capabilities.
         </p>
         <MemberForm
           action={createMemberAction}
+          roles={roles}
           // Only an active office can be given a member.
           offices={offices.filter((o) => o.OfficeStatus === "Active").map((o) => ({ value: o.OfficeKey, label: o.OfficeName }))}
         />

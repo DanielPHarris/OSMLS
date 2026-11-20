@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { PasswordLinkButton } from "@/components/password-link-button";
-import { can } from "@/lib/access";
+import { can, capabilityOver } from "@/lib/access";
 import { fieldLabel, formatDateTime } from "@/lib/format";
 import { CAPABILITIES, CAPABILITY_LABELS } from "@/lib/lookups";
 import { getMemberForAdmin, getMemberHistory, listOffices } from "@/lib/members";
@@ -22,6 +22,10 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
   const officeNames = new Map(offices.map((o) => [o.OfficeKey, o.OfficeName]));
   const active = m.MemberStatus === "Active";
   const self = m.MemberKey === current.MemberKey;
+  const isStaffAccount = m.OsmlsRole === "staff";
+  // An agent is changed by whoever manages members, a staff account by whoever manages staff.
+  const mayChange = can(current, capabilityOver(m));
+  const mayChangeRole = can(current, "staff");
   const shown = (field: string, value: string | null) =>
     value == null ? "—" : field === "OfficeKey" ? (officeNames.get(value) ?? value) : field === "MemberStatus" && value === "Inactive" ? "Suspended" : value;
   return (
@@ -36,9 +40,34 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
         </p>
       </div>
 
+      {!mayChange && (
+        <section className="card space-y-3" data-testid="member-read-only">
+          <p className="text-sm">
+            {isStaffAccount
+              ? "This is an MLS staff account. Changing it takes the Manage staff capability, which you do not hold."
+              : "This is an agent. Changing an agent takes the Manage members capability, which you do not hold."}
+          </p>
+          {!isStaffAccount && mayChangeRole && (
+            <ActionForm action={updateMemberAction.bind(null, m.MemberKey)} className="space-y-3">
+              <input type="hidden" name="firstName" value={m.MemberFirstName} />
+              <input type="hidden" name="lastName" value={m.MemberLastName} />
+              <input type="hidden" name="memberId" value={m.MemberMlsId} />
+              <input type="hidden" name="phone" value={m.MemberDirectPhone ?? ""} />
+              <input type="hidden" name="role" value="staff" />
+              <p className="text-sm text-muted">
+                You can make this member MLS staff. That removes their office, and they can administer nothing until they
+                are given capabilities.
+              </p>
+              <button className="btn">Make MLS staff</button>
+            </ActionForm>
+          )}
+        </section>
+      )}
+
+      {mayChange && (
       <section className="card space-y-3" aria-labelledby="details-heading" data-testid="member-details">
         <h2 id="details-heading" className="text-base font-semibold">
-          Details and role
+          {mayChangeRole ? "Details and role" : "Details"}
         </h2>
         <ActionForm action={updateMemberAction.bind(null, m.MemberKey)} className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -58,43 +87,53 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
               Phone (optional)
               <input name="phone" maxLength={40} defaultValue={m.MemberDirectPhone ?? ""} className="field" />
             </label>
-            <label className="label">
-              Role
-              <select name="role" defaultValue={m.OsmlsRole} className="field">
-                <option value="agent">Agent</option>
-                <option value="staff">MLS staff</option>
-              </select>
-            </label>
-            <label className="label">
-              Office, when making this member an agent
-              <select name="officeKey" defaultValue="" className="field">
-                <option value="">None</option>
-                {offices.filter((o) => o.OfficeStatus === "Active").map((o) => (
-                  <option key={o.OfficeKey} value={o.OfficeKey}>
-                    {o.OfficeName}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {mayChangeRole ? (
+              <>
+                <label className="label">
+                  Role
+                  <select name="role" defaultValue={m.OsmlsRole} className="field">
+                    <option value="agent">Agent</option>
+                    <option value="staff">MLS staff</option>
+                  </select>
+                </label>
+                <label className="label">
+                  Office, when making this member an agent
+                  <select name="officeKey" defaultValue="" className="field">
+                    <option value="">None</option>
+                    {offices.filter((o) => o.OfficeStatus === "Active").map((o) => (
+                      <option key={o.OfficeKey} value={o.OfficeKey}>
+                        {o.OfficeName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : (
+              <input type="hidden" name="role" value={m.OsmlsRole} />
+            )}
           </div>
-          <p className="text-xs text-muted">
-            Making a member an agent needs an office; making one MLS staff removes it. Moving an agent to another office is
-            not available yet. Listings keep the office recorded on them.
-          </p>
+          {mayChangeRole && (
+            <p className="text-xs text-muted">
+              Making a member an agent needs an office and takes away their capabilities; making one MLS staff removes
+              their office, and they can administer nothing until they are given capabilities. Listings keep the office
+              recorded on them.
+            </p>
+          )}
           <button className="btn">Save details</button>
         </ActionForm>
       </section>
+      )}
 
-      {m.OsmlsRole === "agent" && (
+      {m.OsmlsRole === "agent" && mayChange && (
         <section className="card space-y-3" aria-labelledby="office-heading" data-testid="member-office">
           <h2 id="office-heading" className="text-base font-semibold">
             Office:{" "}
-            {m.OfficeKey ? (
+            {m.OfficeKey && can(current, "offices") ? (
               <Link href={`/admin/offices/${m.OfficeKey}`} className="text-brand underline" data-testid="member-office-name">
                 {officeName}
               </Link>
             ) : (
-              <span data-testid="member-office-name">none</span>
+              <span data-testid="member-office-name">{officeName ?? "none"}</span>
             )}
           </h2>
           <p className="text-sm text-muted">
@@ -155,6 +194,7 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
         </section>
       )}
 
+      {mayChange && (
       <section className="card space-y-3" aria-labelledby="signin-heading" data-testid="member-sign-in">
         <h2 id="signin-heading" className="text-base font-semibold">
           Sign-in
@@ -172,6 +212,7 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
         </p>
         <PasswordLinkButton action={sendPasswordLinkAction.bind(null, m.MemberKey)} />
       </section>
+      )}
 
       <section className="card space-y-3" aria-labelledby="access-heading" data-testid="member-access">
         <h2 id="access-heading" className="text-base font-semibold">
@@ -183,7 +224,7 @@ export default async function MemberPage({ params }: { params: Promise<{ key: st
         </p>
         {self ? (
           <p className="text-sm">You cannot suspend your own account.</p>
-        ) : (
+        ) : !mayChange ? null : (
           <ActionForm action={setMemberStatusAction.bind(null, m.MemberKey, active ? "Inactive" : "Active")} className="space-y-3">
             <label className="label block">
               Reason

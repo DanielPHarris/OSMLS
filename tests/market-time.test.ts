@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { localDate } from "../src/lib/listings";
-import { choosePredecessor, continuesPredecessor, daysBetween, normalizeParcel, sameProperty } from "../src/lib/market-time";
+import * as rules from "../src/lib/market-time";
+import { daysBetween, normalizeParcel } from "../src/lib/market-time";
 import { median } from "../src/lib/market-research";
-import { MARKET_TIME_SETTINGS } from "../src/lib/rules/market-time";
+import { STARTING_MARKET_TIME_SETTINGS, type MarketTimeSettings } from "../src/lib/rules/market-time";
+
+// The rules take the settings to apply and have none of their own. These tests
+// use the starting values unless one says otherwise.
+const START = STARTING_MARKET_TIME_SETTINGS;
+type Identity = Parameters<typeof rules.sameProperty>[0];
+type Linkable = Parameters<typeof rules.continuesPredecessor>[0];
+const sameProperty = (a: Identity, b: Identity, settings: MarketTimeSettings = START) => rules.sameProperty(a, b, settings);
+const continuesPredecessor = (a: Linkable, b: Linkable, settings: MarketTimeSettings = START) => rules.continuesPredecessor(a, b, settings);
+const choosePredecessor = <T extends Identity & { listingKey: string; enteredAt: Date }>(current: T, candidates: readonly T[]) =>
+  rules.choosePredecessor(current, candidates, START);
 
 const home = {
   parcelNumber: "12-345-678",
@@ -17,11 +28,11 @@ const home = {
 
 describe("the settings file", () => {
   it("has one list of statuses that accumulate days, and no list of pausing statuses", () => {
-    expect(MARKET_TIME_SETTINGS.accumulatingStatuses).toEqual(["Active", "Active Under Contract"]);
-    expect(Object.keys(MARKET_TIME_SETTINGS).sort()).toEqual(
+    expect(STARTING_MARKET_TIME_SETTINGS.accumulatingStatuses).toEqual(["Active", "Active Under Contract"]);
+    expect(Object.keys(STARTING_MARKET_TIME_SETTINGS).sort()).toEqual(
       ["accumulatingStatuses", "addressFallback", "brokerageChangeResets", "gapEndpoint", "relistingGapDays", "timeZone"].sort(),
     );
-    expect(MARKET_TIME_SETTINGS).toMatchObject({ relistingGapDays: 30, brokerageChangeResets: false, addressFallback: true, gapEndpoint: "entered" });
+    expect(STARTING_MARKET_TIME_SETTINGS).toMatchObject({ relistingGapDays: 30, brokerageChangeResets: false, addressFallback: true, gapEndpoint: "entered" });
   });
 });
 
@@ -50,7 +61,7 @@ describe("is it the same property?", () => {
     expect(sameProperty(noCounty, { ...noCounty, parcelNumber: "99" })).toBe(true);
     expect(sameProperty(noParcel, { ...noParcel, streetName: "Oak Street" })).toBe(false);
     expect(sameProperty(noParcel, { ...noParcel, postalCode: "98002" })).toBe(false);
-    expect(sameProperty(noParcel, noParcel, { ...MARKET_TIME_SETTINGS, addressFallback: false })).toBe(false);
+    expect(sameProperty(noParcel, noParcel, { ...STARTING_MARKET_TIME_SETTINGS, addressFallback: false })).toBe(false);
   });
 
   it("does not consult the address when both are identified by different parcels", () => {
@@ -95,9 +106,9 @@ describe("choosing and testing the predecessor", () => {
     const current = link({ enteredDate: "2026-05-29", firstOnMarketDate: "2026-06-05", brokerageKey: "two" });
     expect(continuesPredecessor(current, link())).toBe(true); // 29 days
     expect(continuesPredecessor({ ...current, enteredDate: "2026-05-30" }, link())).toBe(false); // 30 days
-    expect(continuesPredecessor(current, link(), { ...MARKET_TIME_SETTINGS, gapEndpoint: "onMarket" })).toBe(false); // 36 days
-    expect(continuesPredecessor(current, link(), { ...MARKET_TIME_SETTINGS, brokerageChangeResets: true })).toBe(false);
-    expect(continuesPredecessor({ ...current, brokerageKey: "one" }, link(), { ...MARKET_TIME_SETTINGS, brokerageChangeResets: true })).toBe(true);
+    expect(continuesPredecessor(current, link(), { ...STARTING_MARKET_TIME_SETTINGS, gapEndpoint: "onMarket" })).toBe(false); // 36 days
+    expect(continuesPredecessor(current, link(), { ...STARTING_MARKET_TIME_SETTINGS, brokerageChangeResets: true })).toBe(false);
+    expect(continuesPredecessor({ ...current, brokerageKey: "one" }, link(), { ...STARTING_MARKET_TIME_SETTINGS, brokerageChangeResets: true })).toBe(true);
   });
 });
 

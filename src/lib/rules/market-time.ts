@@ -3,13 +3,16 @@ import type { StandardStatus } from "../lookups";
 /*
  * How days on market are counted and when a relisting continues an earlier
  * listing's count. The Data Dictionary leaves both to each MLS, so these are
- * OSMLS's defaults, not a standard. An MLS changes its policy here.
+ * policy for each MLS to set, not a standard.
  *
- * Two things to know before changing a value:
- * - It takes a redeployment. Nothing in the application edits these.
- * - It recalculates the past. The figures are worked out from each listing's
- *   status history whenever they are shown, so a new value changes them for old
- *   listings as well as new ones.
+ * The settings in force are kept in the database and changed on the Settings
+ * screen by staff who hold "Manage settings" (src/lib/settings.ts). The values
+ * below are only what a new installation starts with: the first stored version
+ * is made from them, and the application never reads them after that.
+ *
+ * A change recalculates the past. The figures are worked out from each
+ * listing's status history whenever they are shown, so a new value changes them
+ * for old listings as well as new ones.
  */
 export type MarketTimeSettings = {
   /**
@@ -37,7 +40,7 @@ export type MarketTimeSettings = {
   timeZone: string;
 };
 
-export const MARKET_TIME_SETTINGS: MarketTimeSettings = {
+export const STARTING_MARKET_TIME_SETTINGS: MarketTimeSettings = {
   accumulatingStatuses: ["Active", "Active Under Contract"],
   relistingGapDays: 30,
   brokerageChangeResets: false,

@@ -9,9 +9,12 @@ type Option = { value: string; label: string };
 export function MemberForm({
   action,
   offices,
+  roles,
 }: {
   action: (previous: MemberFormState, formData: FormData) => Promise<MemberFormState>;
   offices: Option[];
+  /** The roles this person may add: agents take "Manage members", staff take "Manage staff". */
+  roles: readonly ("agent" | "staff")[];
 }) {
   const [state, formAction, pending] = useActionState<MemberFormState, FormData>(action, {});
   const error = (field: string) => state.errors?.[field] && <span className="error block">{state.errors[field]}</span>;
@@ -42,9 +45,9 @@ export function MemberForm({
         </label>
         <label className="label">
           Role
-          <select name="role" defaultValue={kept("role") || "agent"} className="field">
-            <option value="agent">Agent</option>
-            <option value="staff">MLS staff</option>
+          <select name="role" defaultValue={kept("role") || roles[0]} className="field">
+            {roles.includes("agent") && <option value="agent">Agent</option>}
+            {roles.includes("staff") && <option value="staff">MLS staff</option>}
           </select>
           {error("role")}
         </label>

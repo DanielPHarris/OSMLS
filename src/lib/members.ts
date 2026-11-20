@@ -297,7 +297,8 @@ export async function updateMember(actor: Member | null, key: unknown, input: un
       await takeAuthorityTurn(tx);
       const [target] = await tx.select().from(member).where(eq(member.MemberKey, key)).for("update");
       if (!target) throw notFound();
-      const by = await actingOver(tx, actor, target);
+      // Making someone staff, or making staff an agent, is managing staff whichever they are now.
+      const by = v.role !== target.OsmlsRole ? await actingStaff(tx, actor, "staff") : await actingOver(tx, actor, target);
       const changes: Change[] = [];
       const values: Partial<typeof member.$inferInsert> = {};
       for (const column of Object.keys(DETAIL_FIELDS) as (keyof typeof DETAIL_FIELDS)[]) {
@@ -311,8 +312,6 @@ export async function updateMember(actor: Member | null, key: unknown, input: un
       }
       if (v.role !== target.OsmlsRole) {
         if (target.MemberKey === by.MemberKey) throw new ListingError("You cannot change your own role.", { role: "You cannot change your own role." });
-        // Making someone staff, or making staff an agent, is managing staff.
-        if (!can(by, "staff")) throw notFound();
         if (v.role === "agent") await keepOneAdministrator(tx, target, "made an agent");
         const officeKey = v.role === "agent" ? await officeFor(tx, v.officeKey) : null;
         changes.push({ field: "OsmlsRole", previous: target.OsmlsRole, next: v.role, type: "Role Change" });

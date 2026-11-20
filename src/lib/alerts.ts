@@ -7,6 +7,7 @@ import { latestSequence, listingsWithActivity } from "./activity";
 import { formatDateTime } from "./format";
 import { ListingError } from "./listings";
 import { MailError, appUrl, mailEnabled, sendMail, type Mail } from "./mail";
+import { withOneSettingsVersion } from "./market-time";
 import { MAX_ACTIVITY_LISTINGS, MAX_ALERT_FAILURES, MAX_UNCERTAIN_ALERT_SENDS } from "./rules/local";
 import { LATEST_HISTORY_SEQUENCE } from "./saved-work";
 import { isOwnKey } from "./validation";
@@ -178,7 +179,7 @@ async function sendOne(key: string, send: Send, now: Date): Promise<AlertOutcome
  * started meanwhile reports busy and does nothing. Suspended members are sent
  * nothing, and their checkpoints wait for them.
  */
-export async function sendDueAlerts(
+async function runDueAlerts(
   options: { send?: Send; now?: Date } = {},
 ): Promise<{ busy: boolean; outcomes: Partial<Record<AlertOutcome | "error", number>> }> {
   const { send = sendMail, now = new Date() } = options;
@@ -215,3 +216,6 @@ export async function sendDueAlerts(
     return { busy: false, outcomes };
   });
 }
+
+/** The run works under one version of the market-time settings, whatever is saved while it is running. */
+export const sendDueAlerts = (options: { send?: Send; now?: Date } = {}) => withOneSettingsVersion(() => runDueAlerts(options));

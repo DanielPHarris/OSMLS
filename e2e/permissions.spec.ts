@@ -130,3 +130,36 @@ test("a staff member given only Manage settings changes a setting, and loses the
   }
   await expect(await relistedFigures(admin)).toHaveText("30 / 90");
 });
+
+test("a staff member who manages members sees staff accounts but cannot change them", async ({ browser }) => {
+  const admin = await (await browser.newContext()).newPage();
+  const colleague = await (await browser.newContext()).newPage();
+  await signIn(colleague, COLLEAGUE);
+  await signIn(admin, ADMIN);
+  try {
+    await setCapabilities(admin, ["Manage members"], "Proof: members only");
+
+    await colleague.goto("/admin/members?q=Ellis");
+    await expect(colleague.getByRole("link", { name: "Offices" })).toHaveCount(0);
+    await expect(colleague.getByRole("link", { name: "Settings" })).toHaveCount(0);
+    // They can add agents, and are not offered the choice of adding staff.
+    await expect(colleague.getByTestId("add-member").getByLabel("Role").locator("option")).toHaveText(["Agent"]);
+
+    // A staff account: on view, with nothing to change it by.
+    await colleague.getByRole("link", { name: "Morgan Ellis" }).click();
+    await expect(colleague.getByTestId("member-read-only")).toContainText("takes the Manage staff capability");
+    for (const section of ["member-details", "member-sign-in", "member-capabilities"]) await expect(colleague.getByTestId(section)).toHaveCount(0);
+    await expect(colleague.getByRole("button", { name: /Suspend access|Make MLS staff/ })).toHaveCount(0);
+
+    // An agent: everything but the role.
+    await colleague.goto("/admin/members?q=Whitfield");
+    await colleague.getByRole("link", { name: "Sam Whitfield" }).click();
+    await expect(colleague.getByTestId("member-details").getByLabel("First name")).toBeVisible();
+    await expect(colleague.getByTestId("member-details").getByLabel("Role")).toHaveCount(0);
+    await expect(colleague.getByTestId("member-sign-in")).toBeVisible();
+    await expect(colleague.getByRole("button", { name: "Suspend access" })).toBeVisible();
+  } finally {
+    await setCapabilities(admin, ALL, "Proof: restored");
+  }
+});
+

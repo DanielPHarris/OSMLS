@@ -4,11 +4,7 @@ import { cache } from "react";
 import { db } from "../db";
 import { marketTimeSettings, type MarketTimeSettingsRow } from "../db/schema";
 import type { StandardStatus } from "./lookups";
-import {
-  CONTINUABLE_END_STATUSES,
-  MARKET_TIME_SETTINGS,
-  type MarketTimeSettings,
-} from "./rules/market-time";
+import { CONTINUABLE_END_STATUSES, type MarketTimeSettings } from "./rules/market-time";
 
 /*
  * Days on market (DOM) and cumulative days on market (CDOM).
@@ -115,7 +111,7 @@ const hasParcelIdentity = (x: Identity) =>
  * Whether two listings are of the same property. Deliberately narrow: a wrong
  * match would give one property another's market time.
  */
-export function sameProperty(a: Identity, b: Identity, settings: MarketTimeSettings = MARKET_TIME_SETTINGS): boolean {
+export function sameProperty(a: Identity, b: Identity, settings: MarketTimeSettings): boolean {
   // Units in one building can share a parcel and always share a street address.
   if (text(a.unitNumber) !== text(b.unitNumber)) return false;
 
@@ -150,7 +146,7 @@ type Linkable = Pick<
 export function continuesPredecessor(
   current: Linkable,
   predecessor: Linkable,
-  settings: MarketTimeSettings = MARKET_TIME_SETTINGS,
+  settings: MarketTimeSettings,
 ): boolean {
   // A sale always resets, as does a predecessor that is still running.
   if (!(CONTINUABLE_END_STATUSES as readonly string[]).includes(predecessor.standardStatus)) return false;
@@ -179,7 +175,7 @@ export function continuesPredecessor(
 export function choosePredecessor<T extends Identity & { listingKey: string; enteredAt: Date }>(
   current: T,
   candidates: readonly T[],
-  settings: MarketTimeSettings = MARKET_TIME_SETTINGS,
+  settings: MarketTimeSettings,
 ): T | null {
   let best: T | null = null;
   for (const candidate of candidates) {

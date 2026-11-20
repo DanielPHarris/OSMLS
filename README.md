@@ -177,10 +177,12 @@ Sold search, days on market, and comparables.
 **Days on market are a policy, not a fact.** The RESO Data Dictionary defines both
 days on market (DOM) and cumulative days on market (CDOM) only as "defined by the
 MLS business rules", so figures from different MLSs are not comparable. OSMLS does
-not pick one policy for everyone. It ships defaults, each a named setting in
+not pick one policy for everyone. It has six settings, which an MLS changes on the
+**Settings** screen (see "staff permissions and market-time settings" below). A new
+installation starts with the values in
 [src/lib/rules/market-time.ts](src/lib/rules/market-time.ts):
 
-| Setting | What it decides | Default |
+| Setting | What it decides | Starting value |
 | --- | --- | --- |
 | Statuses that accumulate days | The one list of statuses in which a listing gains days. In every other status the count is paused. | Active, Active Under Contract |
 | Relisting gap | How long a property may be off the market and still have a new listing continue the old count. | 30 days |
@@ -189,10 +191,8 @@ not pick one policy for everyone. It ships defaults, each a named setting in
 | Gap endpoint | Whether the gap ends when the new listing was entered, or when it first went on the market. | Entered |
 | MLS time zone | The time zone whose calendar dates are counted. | Pacific time |
 
-- **These are OSMLS's defaults, not a standard.** An MLS adopting OSMLS should set
-  them to match its own rules.
-- **Changing a setting takes a developer.** It means editing that file and
-  redeploying. There is no screen for it.
+- **These are OSMLS's starting values, not a standard.** An MLS adopting OSMLS
+  should set them to match its own rules.
 - **Changing a setting recalculates the past.** Nothing is stored: the figures are
   worked out from each listing's status history whenever they are shown, so a new
   value changes them for old listings too. A policy cannot be applied from a date.
@@ -483,11 +483,12 @@ unknown.
 
 The first of three slices of "administration". MLS staff can add a member, change
 a member's details and role, and suspend or reinstate a member's access, at
-**Members** in the page header. Offices and brokerages are the second slice, below.
-Finer staff permissions are the third and are not built.
+**Members** in the page header. Offices and brokerages are the second slice, and
+staff permissions the third, both below.
 
-- **Who may.** Every active MLS staff account, until finer staff permissions
-  exist. For anyone else these pages and actions answer "not found".
+- **Who may.** Staff who hold "Manage members", for agents; staff accounts take
+  "Manage staff" (see staff permissions below). For anyone else these pages and
+  actions answer "not found".
 - **Adding a member.** Name, email, member ID, role, phone, and for an agent an
   office. The member record and the sign-in identity are made together or not at
   all. There is still no public sign-up.
@@ -519,10 +520,6 @@ Finer staff permissions are the third and are not built.
 - **No deletion.** A member is suspended, never removed, because history refers to
   them.
 
-A rule that the last active staff account cannot be suspended or made an agent is
-also in the code. With the guards above it cannot be reached through the
-application, so no test exercises it; it is there in case a later change opens a
-way.
 
 ### Added since 0.1: offices and brokerages
 
@@ -531,7 +528,7 @@ change its details, group offices into a brokerage, deactivate and reactivate an
 office, and move an agent from one office to another, at **Offices** in the page
 header and on each member's page.
 
-- **Who may.** Every active MLS staff account, as for members.
+- **Who may.** Staff who hold "Manage offices".
 - **A brokerage is a main office and its branches**, one level deep. A branch's
   main office must itself be a main office, an office with branches cannot become
   a branch, and an office cannot be its own main office.
@@ -562,10 +559,77 @@ header and on each member's page.
 Not included: brokerage-wide access, broker or office-manager roles, moving
 listings between offices, bulk moves, and licence or membership data.
 
+### Added since 0.1: staff permissions and market-time settings
+
+The third of three slices of "administration".
+
+**Staff permissions.** Administration is divided into four capabilities, each held
+by individual staff accounts:
+
+| Capability | Allows |
+| --- | --- |
+| Manage members | Add, edit, suspend, reinstate and move agents; change their email; send them password links |
+| Manage offices | Add, edit, deactivate and reactivate offices; group them into brokerages |
+| Manage settings | Change the market-time settings |
+| Manage staff | Add staff accounts, change a role to or from staff, grant and revoke capabilities, and do any member action to a staff account |
+
+- **They divide administration and nothing else.** Every active staff account can
+  still correct any listing and see all documents and showing instructions, as
+  before.
+- **Managing members is not managing staff.** Someone who holds only "Manage
+  members" cannot add a staff account, change a role to or from staff, or edit,
+  suspend, change the email of, or send a password link to a staff account. So
+  they cannot take one over.
+- **Granting.** Only a holder of "Manage staff" grants or revokes, on the staff
+  member's page, with a reason, and it is written to that member's change record.
+  A new staff account starts with none. Making staff an agent takes theirs away.
+- **Only on an active staff account.** A capability recorded on an agent or on a
+  suspended account allows nothing.
+- **Decided inside the operation.** Who is acting and what they are acting on
+  are both read again inside the protected step, not taken from what the request
+  saw. An agent who became staff while an email change for them was waiting is
+  treated as staff; a capability revoked while an action was waiting refuses it.
+  A revocation applies to a session already open at its next action.
+- **Someone can always manage staff.** The last active account holding "Manage
+  staff" cannot give it up, be suspended, or be made an agent, including when two
+  such changes are made at the same moment. An administrator may give up their
+  own while another remains.
+- **Upgrading.** Every existing staff account, active or suspended, is given all
+  four, so nothing changes until someone narrows it.
+
+**Market-time settings.** Staff who hold "Manage settings" change the six settings
+at **Settings** in the page header. No redeployment or restart is involved.
+
+- **Limits.** At least one status must gain days, chosen from the standard
+  statuses other than Closed, Canceled, Expired and Withdrawn. The relisting gap
+  is a whole number from 0 to 365. The time zone is an IANA name. These limits are
+  OSMLS's choices.
+- **The record.** Each save needs a reason and is kept as a new version with who
+  made it, when, and the old and new value of each setting changed. Earlier
+  versions are never altered. The screen shows them all.
+- **Two people editing.** A save made from a version that is no longer in force is
+  refused, and the current values are shown.
+- **It recalculates the past.** A saved change applies to every listing, past and
+  present, from the next page or run. Figures are not stored, so there is one
+  policy at a time: no effective dates, and no record of what a figure used to be.
+  The screen says this, and asks for confirmation, before saving.
+- **One version per operation.** A page, an action, and the scheduled alert run
+  each use one version of the settings from start to finish, whatever is saved
+  meanwhile. Nothing in the application reads the starting values in code.
+- **Time zone.** It also decides calendar dates elsewhere, such as the date a
+  listing went on the market and the dates on a member timeline. Dates and times
+  already stored are never rewritten; a new zone applies to dates worked out from
+  stored times, and to dates stored from then on.
+- **Alerts.** A settings change alone sends no email.
+
+Not included: custom roles or groups, staff limited to particular offices,
+permissions for agents or brokers, settings that apply from a date or differ by
+office, and settings for comparables.
+
 ### Not yet built
 
-Client accounts and scheduled email to clients, brokerage-wide access, finer staff
-permissions, self-service password reset, compliance flags, imports and exports, a
+Client accounts and scheduled email to clients, brokerage-wide access,
+self-service password reset, compliance flags, imports and exports, a
 RESO Web API endpoint, fair-housing checks on remarks, and production operations
 (monitoring, backups, recovery). See the charter for the planned order.
 
@@ -591,7 +655,7 @@ value in [.env.example](.env.example).
 | `alex.rivera@osmls.example` | Agent, Harborview Realty (Demo) |
 | `sam.whitfield@osmls.example` | Agent, Summit Line Properties (Demo) |
 | `jordan.okafor@osmls.example` | Agent, Harborview Realty (Demo), the same office as Alex |
-| `morgan.ellis@osmls.example` | MLS staff |
+| `morgan.ellis@osmls.example` | MLS staff, holding every capability |
 | `riley.chen@osmls.example` | Suspended agent: can sign in, but is refused everything |
 
 The secrets in `docker-compose.yml` and `.env.example` are for local demos only.
@@ -634,7 +698,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, and administration in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, and staff permissions in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -652,6 +716,8 @@ the development server closes idle connections after five seconds and cannot be
 told otherwise, which is the likely cause of requests that failed at random. The sharing tests
 send real email to the mail catcher (`docker compose up -d mail`) and read it back. The default map
 service was checked by hand in a production build, at desktop and phone widths.
+The staff permissions test changes the market-time settings that other tests'
+figures depend on, so it runs after the rest and puts them back.
 
 ## How it is built
 
@@ -686,6 +752,8 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | Column | Purpose |
 | --- | --- |
 | `Member.OsmlsRole` | `agent` or `staff` |
+| `Member.OsmlsCapabilities` | What a staff account may administer |
+| `OsmlsMarketTimeSettings` (table) | The market-time settings, one row per saved version |
 | `Member.OsmlsUserId` | Links a member to their sign-in account |
 | `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
 | `Media.OsmlsStoragePath` | Generated file name of the stored photo or document |
