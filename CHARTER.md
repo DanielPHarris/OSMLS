@@ -86,8 +86,9 @@ production-ready.**
   apply, and a link is never followed past a sale. Tests cover every kind of
   viewer, both limits under simultaneous submissions, and the overlaps that
   could get past a suspension or a revoked capability. Nothing finds problems
-  automatically, and this is not legal compliance. One known gap from the
-  sharing work is tracked separately (issue #29).
+  automatically, and this is not legal compliance. A gap of the same kind in
+  the sharing work, where a member suspended while a request was waiting could
+  still be given a client link, was closed on 2026-11-20 (issue #29).
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
