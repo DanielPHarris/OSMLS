@@ -52,8 +52,9 @@ production-ready.**
   (slice 3) shows new listings, status changes and list price changes since a
   checkpoint the member moves only by marking activity as seen. A test commits a
   change late and confirms it is not skipped. To make that safe, changes to
-  listings are committed one at a time; how much that limits a busy MLS has not
-  been measured. Sharing and scheduled alerts (slice 4) give a client a link to
+  listings are committed one at a time. What that costs was measured on one
+  laptop (README, "performance measurement"); that is not a capacity figure
+  for any installation. Sharing and scheduled alerts (slice 4) give a client a link to
   a listing or a collection, built from the same client-copy list, and email a
   member the activity on their saved searches. Tests send real email to a mail
   catcher, read the whole shared response, and cover every way a link's access
@@ -505,7 +506,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | --- | --- | --- |
    | 1 | Backup and recovery, proved by a restore drill in which the database and the uploaded files are restored together | Done 2026-11-21 (issue #37) |
    | 2 | Monitoring: health checks, failure reporting, and a status screen | Done 2026-11-21 (issue #40) |
-   | 3 | Performance: the measured throughput and latency of listing changes, which commit one at a time | Not started |
+   | 3 | Performance: the measured throughput and latency of listing changes, which commit one at a time | In progress (issue #42) |
 
    The phase is proved locally, in the Docker Compose setup the project ships.
    That shows the mechanisms work. It does not show that a hosted installation
