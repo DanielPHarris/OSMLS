@@ -412,7 +412,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | Slice | Delivers | Status |
    | --- | --- | --- |
    | 1 | A read-only RESO Web API endpoint with bearer tokens, and RESO's certification tool run against it | Done 2026-11-20 (issue #31) |
-   | 2 | Controlled distribution: more than one kind of feed, and file export of search results | Not started |
+   | 2 | Controlled distribution: more than one kind of feed, and file export of search results | In progress (issue #33) |
    | 3 | Imports through the same validation and history as hand entry | Not started |
 
    Decided by the maintainer on 2026-11-20 for slice 1:
