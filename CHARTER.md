@@ -110,7 +110,7 @@ production-ready.**
   is confirmed, and a commit creates exactly the rows the preview accepted or
   nothing. The importer cannot migrate an existing MLS's historical records;
   that is deferred (section 4).
-- Production operations is under way: slice 1 of 3 is delivered. One command
+- Production operations is under way: slices 1 and 2 of 3 are delivered. One command
   backs up the database and the photo and document files together, as one
   state the system was in, with the application in use throughout; another
   restores them into an empty database and folder and checks the result. A
@@ -118,9 +118,15 @@ production-ready.**
   To make that possible, removing a photo or a document no longer deletes its
   file at once: it leaves the application immediately, and its file is deleted
   later, once the media folder has been given to that database alone, and remains in backups until they are pruned. This is proved locally
-  only. Backups stay on the same machine, unencrypted, and nothing yet reports
-  when they stop. Monitoring and performance measurement (slices 2 and 3) are
-  not built, so the phase is not complete.
+  only, and backups stay on the same machine, unencrypted. The installation
+  also watches itself: two health checks, a record of every backup and
+  scheduled run, an email to one operations address when a backup is overdue
+  or failed, a scheduled task does not finish, alerts are not being sent, or
+  files cannot be stored, and a status screen for staff. It cannot report that
+  the machine is off, that the database is unreachable, or that its own
+  scheduled command has stopped; a monitor outside it is needed for those and
+  is not built. Performance measurement (slice 3) is not built, so the phase
+  is not complete.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -498,7 +504,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | Slice | Delivers | Status |
    | --- | --- | --- |
    | 1 | Backup and recovery, proved by a restore drill in which the database and the uploaded files are restored together | Done 2026-11-21 (issue #37) |
-   | 2 | Monitoring: health checks, failure reporting, and a status screen | In progress (issue #40) |
+   | 2 | Monitoring: health checks, failure reporting, and a status screen | Done 2026-11-21 (issue #40) |
    | 3 | Performance: the measured throughput and latency of listing changes, which commit one at a time | Not started |
 
    The phase is proved locally, in the Docker Compose setup the project ships.
@@ -533,6 +539,20 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    - Backups continue, but the sweep deletes nothing until the media folder
      has been given to one database with `pnpm media:claim`. Until then removed
      files accumulate on disk.
+
+   Decided by the maintainer on 2026-11-21 for slice 2:
+   - Health checks are open without sign-in and reveal only ok or not ok.
+   - Overdue backups are shown and reported but never fail readiness.
+   - A backup is overdue after 26 hours and the scheduled command after 2
+     hours, both configurable.
+   - Reports go by email to one configured address: when a condition begins,
+     every 24 hours while it lasts, and when it ends.
+   - The status screen is for staff who hold "Manage settings"; there is no
+     eighth capability.
+   - Server errors are logged, one structured line each with no personal data,
+     and are not stored, counted or emailed.
+   - A database outage or a wrong schema version is not emailed from inside;
+     it shows in the readiness check and the log.
 
 Agreed by the maintainer on 2026-11-20: this roadmap ends with items 4 and 5,
 data exchange and then production operations, in that order. What section 4
