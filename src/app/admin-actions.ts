@@ -1,9 +1,10 @@
 "use server";
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/app/actions";
 import { createDataConsumer, revokeDataConsumer } from "@/lib/data-exchange";
+import { commitImport, previewImport } from "@/lib/imports";
 import { ListingError } from "@/lib/listings";
 import { changeMemberEmail, createMember, moveMember, sendPasswordLink, setCapabilities, setMemberStatus, setPasswordWithLink, updateMember } from "@/lib/members";
 import { createOffice, setMainOffice, setOfficeStatus, updateOffice } from "@/lib/offices";
@@ -175,6 +176,38 @@ export async function revokeDataConsumerAction(key: string): Promise<FormState> 
   }
   revalidatePath("/", "layout");
   return { ok: true, message: "Revoked. Its token is refused from now on." };
+}
+
+export async function previewImportAction(_previous: FormState, formData: FormData): Promise<FormState> {
+  const current = await getCurrentMember();
+  const file = formData.get("file");
+  let made: Awaited<ReturnType<typeof previewImport>>;
+  try {
+    made = await previewImport(current, {
+      sourceName: formData.get("sourceName"),
+      fileName: file instanceof File ? file.name : undefined,
+      text: file instanceof File ? await file.text() : undefined,
+    });
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  redirect(`/admin/imports/${made.ImportKey}`);
+}
+
+export async function commitImportAction(key: string): Promise<FormState> {
+  const current = await getCurrentMember();
+  let outcome: Awaited<ReturnType<typeof commitImport>>;
+  try {
+    outcome = await commitImport(current, key);
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  if (outcome.stale) {
+    return { message: "Nothing was created. A row that was going to be created no longer passes, so the preview has been brought up to date. Look at it again before committing." };
+  }
+  return { ok: true, message: `${outcome.created} ${outcome.created === 1 ? "listing was" : "listings were"} created.` };
 }
 
 export async function createOfficeAction(_previous: FormState, formData: FormData): Promise<FormState> {

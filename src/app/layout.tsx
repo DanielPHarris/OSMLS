@@ -35,6 +35,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {canSeeMembers(current) && <Link href="/admin/members">Members</Link>}
                   {can(current, "offices") && <Link href="/admin/offices">Offices</Link>}
                   {can(current, "compliance") && <Link href="/admin/flags">Flags</Link>}
+                  {can(current, "imports") && <Link href="/admin/imports">Imports</Link>}
                   {can(current, "data") && <Link href="/admin/data-access">Data access</Link>}
                   {can(current, "settings") && <Link href="/admin/settings">Settings</Link>}
                 </nav>
