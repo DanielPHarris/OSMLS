@@ -1,4 +1,5 @@
-import { MEMBER_STATUSES, OFFICE_STATUSES, PROPERTY_TYPES, STANDARD_STATUSES } from "../lookups";
+import { MEMBER_STATUSES, OFFICE_STATUSES, PROPERTY_TYPES, STANDARD_STATUSES, sqlList } from "../lookups";
+import { CLIENT_COPY_STATUSES } from "./client-copy";
 
 /*
  * The export allowlist: every resource and field the data exchange feed may
@@ -34,6 +35,12 @@ export type ServedField = {
    * listing before the query is answered. A photo's address cannot.
    */
   queryable?: true;
+  /**
+   * Set only by a feed (below): what the feed gives in place of the stored
+   * column. It is what is returned and also what is filtered and sorted on, so
+   * a value the feed does not give cannot be found out by querying for it.
+   */
+  given?: string;
 };
 
 export type ServedResource = {
@@ -179,3 +186,114 @@ export const DEFAULT_PAGE_SIZE = 100;
 export const MAX_PAGE_SIZE = 200;
 /** Requests one data consumer may make in a minute. */
 export const MAX_REQUESTS_PER_MINUTE = 1200;
+
+// ---- Feeds ----
+
+/*
+ * A feed is what one kind of data consumer may read. Each is written out here
+ * as a narrowing of the allowlist above and can be nothing more: it names
+ * fields that are on the allowlist, may add a condition on which records it
+ * carries, and may give less than a stored value. Every data consumer reads
+ * exactly one feed, fixed when the consumer is made.
+ *
+ * Like the allowlist, these are distribution policy, and the maintainer's to
+ * set. A feed is not widened to satisfy a test.
+ */
+
+type FeedResource = {
+  /** The served fields this feed carries, or every one of the resource's. */
+  fields: "all" | readonly string[];
+  /** A further fixed condition on which records the feed carries, added to the resource's own. */
+  only?: string;
+  /** For a field: what this feed gives in place of the stored column. */
+  given?: Readonly<Record<string, string>>;
+};
+
+export type Feed = {
+  label: string;
+  /** What the feed is for, as staff are told when choosing one. */
+  purpose: string;
+  resources: Readonly<Record<string, FeedResource>>;
+  /** For a fixed lookup: the values this feed can hold, when that is fewer than all of them. */
+  lookups?: Readonly<Record<string, readonly string[]>>;
+};
+
+const DISPLAYED = `"StandardStatus" in (${sqlList(CLIENT_COPY_STATUSES)})`;
+const onlyIfSold = (field: string) => `(case when "StandardStatus" = 'Closed' then "${field}" end)`;
+
+export const FEEDS = {
+  full: {
+    label: "Full",
+    purpose: "Everything on the allowlist, for listings in every status. For systems that work with the MLS's whole record.",
+    resources: { Property: { fields: "all" }, Member: { fields: "all" }, Office: { fields: "all" }, Media: { fields: "all" }, Field: { fields: "all" }, Lookup: { fields: "all" } },
+  },
+  public: {
+    label: "Public display",
+    purpose:
+      "Meant for showing listings to the public: listings that are Active, Active Under Contract, Pending or Closed, with the fields a client copy has. It is still read only with a token, and being in it does not by itself mean a consumer may publish a listing.",
+    resources: {
+      Property: {
+        fields: [
+          "ListingKey", "ListingId", "StandardStatus", "PropertyType", "ListPrice", "ClosePrice", "CloseDate", "UnparsedAddress", "City", "StateOrProvince", "PostalCode",
+          "BedroomsTotal", "BathroomsTotalInteger", "LivingArea", "LotSizeAcres", "YearBuilt", "PublicRemarks", "ListAgentKey", "ListOfficeKey", "ModificationTimestamp",
+        ],
+        only: DISPLAYED,
+        // As on a client copy: what a listing sold for, and when, only once it has sold.
+        given: { ClosePrice: onlyIfSold("ClosePrice"), CloseDate: onlyIfSold("CloseDate") },
+      },
+      // Agents and offices that have a listing in this feed, by name.
+      Member: {
+        fields: ["MemberKey", "MemberFullName", "OfficeKey", "ModificationTimestamp"],
+        only: `exists (select 1 from "Property" where "Property"."ListAgentKey" = "Member"."MemberKey" and ${DISPLAYED})`,
+      },
+      Office: {
+        fields: ["OfficeKey", "OfficeName", "ModificationTimestamp"],
+        only: `exists (select 1 from "Property" where "Property"."ListOfficeKey" = "Office"."OfficeKey" and ${DISPLAYED})`,
+      },
+      Media: {
+        fields: "all",
+        only: `exists (select 1 from "Property" where "Property"."ListingKey" = "Media"."ResourceRecordKey" and ${DISPLAYED})`,
+      },
+      Field: { fields: "all" },
+      Lookup: { fields: "all" },
+    },
+    lookups: { StandardStatus: CLIENT_COPY_STATUSES },
+  },
+} as const satisfies Record<string, Feed>;
+
+export type FeedName = keyof typeof FEEDS;
+export const FEED_NAMES = Object.keys(FEEDS) as FeedName[];
+export const isFeedName = (v: unknown): v is FeedName => typeof v === "string" && Object.hasOwn(FEEDS, v);
+
+/** A feed's resources, each already narrowed: the only description of the feed the rest of the code reads. */
+export type FeedView = {
+  name: FeedName;
+  resources: readonly ServedResource[];
+  resource: (name: string) => ServedResource | undefined;
+  /** The values of a fixed lookup as this feed can hold them. */
+  fixedLookup: (name: string) => readonly string[] | undefined;
+};
+
+function narrowed(name: FeedName): FeedView {
+  const feed: Feed = FEEDS[name];
+  const resources = SERVED_RESOURCES.filter((r) => feed.resources[r.name]).map((r): ServedResource => {
+    const chosen = feed.resources[r.name];
+    const fields = r.fields
+      .filter((f) => chosen.fields === "all" || chosen.fields.includes(f.name))
+      .map((f) => (chosen.given?.[f.name] ? { ...f, given: chosen.given[f.name] } : f));
+    // A feed may only narrow: a name that is not on the allowlist is a mistake in this file, not a wider feed.
+    const unknown = chosen.fields === "all" ? [] : chosen.fields.filter((n) => !r.fields.some((f) => f.name === n));
+    if (unknown.length > 0 || !fields.some((f) => f.name === r.key)) throw new Error(`The ${name} feed is not a narrowing of the allowlist for ${r.name}.`);
+    const only = [r.only, chosen.only].filter(Boolean).map((c) => `(${c})`).join(" and ");
+    return { ...r, fields, only: only || undefined, expand: r.expand && feed.resources[r.expand.resource] ? r.expand : undefined };
+  });
+  return {
+    name,
+    resources,
+    resource: (wanted) => resources.find((r) => r.name === wanted),
+    fixedLookup: (lookup) => feed.lookups?.[lookup] ?? FIXED_LOOKUPS[lookup],
+  };
+}
+
+const VIEWS = Object.fromEntries(FEED_NAMES.map((name) => [name, narrowed(name)])) as Record<FeedName, FeedView>;
+export const feedView = (name: FeedName): FeedView => VIEWS[name];

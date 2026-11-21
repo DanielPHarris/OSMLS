@@ -1,4 +1,4 @@
-import { admitRequest, consumerFor, finishRequest, metadataDocument, readResource, serviceDocument } from "@/lib/data-exchange";
+import { admitRequest, consumerFor, feedOf, finishRequest, metadataDocument, readResource, serviceDocument } from "@/lib/data-exchange";
 import { ODataError, preferredPageSize } from "@/lib/odata";
 
 /*
@@ -18,6 +18,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   // Unknown, revoked and expired tokens are answered alike, and before anything about the request is looked at.
   if (!consumer) return failure(401, "Unauthorized", "A valid bearer token is required.", { "WWW-Authenticate": "Bearer" });
 
+  // Everything below answers for this consumer's feed and for no other.
+  const view = feedOf(consumer);
   const url = new URL(request.url);
   const path = ((await params).path ?? []).map((part) => decodeURIComponent(part));
   const query = url.search.slice(1);
@@ -30,17 +32,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   try {
     if (path.length === 0) {
       await done(200, 0);
-      return json(serviceDocument());
+      return json(serviceDocument(view));
     }
     if (path.length === 1 && path[0] === "$metadata") {
       await done(200, 0);
-      return new Response(metadataDocument(), { headers: { ...COMMON, "Content-Type": "application/xml;charset=utf-8" } });
+      return new Response(metadataDocument(view), { headers: { ...COMMON, "Content-Type": "application/xml;charset=utf-8" } });
     }
     if (path.length !== 1) throw new ODataError(`There is nothing at "${asked}".`, 404, "NotFound");
     // "Property" for a collection, "Property('key')" for one record.
     const one = /^([A-Za-z]+)\('([^']*)'\)$/.exec(path[0]);
     const maxPageSize = preferredPageSize(request.headers.get("prefer"));
-    const result = one ? await readResource(one[1], url.searchParams, one[2]) : await readResource(path[0], url.searchParams, undefined, { maxPageSize });
+    const result = one ? await readResource(view, one[1], url.searchParams, one[2]) : await readResource(view, path[0], url.searchParams, undefined, { maxPageSize });
     if ("value" in result && Array.isArray(result.value)) {
       const page = result as import("@/lib/data-exchange").Page;
       await done(200, page.value.length);

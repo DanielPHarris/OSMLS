@@ -545,6 +545,8 @@ export const dataConsumer = pgTable(
   {
     ConsumerKey: uuid().primaryKey().defaultRandom(),
     ConsumerName: text().notNull(),
+    // Which feed it reads (FEEDS in src/lib/rules/data-exchange.ts). Fixed when the consumer is made.
+    Feed: text().notNull().default("full"),
     OsmlsTokenHash: text().notNull().unique(),
     CreatedByMemberKey: uuid()
       .notNull()
@@ -557,6 +559,7 @@ export const dataConsumer = pgTable(
   },
   (t) => [
     check("OsmlsDataConsumer_name_present", sql`length(trim(${t.ConsumerName})) > 0`),
+    check("OsmlsDataConsumer_Feed_valid", sql.raw(`"Feed" IN ('full', 'public')`)),
     check("OsmlsDataConsumer_revoked_by_someone", sql`(${t.RevokedTimestamp} IS NULL) = (${t.RevokedByMemberKey} IS NULL)`),
   ],
 );
@@ -570,6 +573,8 @@ export const dataRequest = pgTable(
       .notNull()
       .references(() => dataConsumer.ConsumerKey),
     RequestTimestamp: timestamptz().notNull().defaultNow(),
+    // The feed that answered, as it was for the consumer at the time.
+    Feed: text().notNull().default("full"),
     ResourceName: text().notNull(),
     Query: text().notNull(),
     Status: integer().notNull(),
@@ -586,3 +591,24 @@ export type Share = typeof share.$inferSelect;
 export type MarketTimeSettingsRow = typeof marketTimeSettings.$inferSelect;
 export type Flag = typeof flag.$inferSelect;
 export type DataConsumer = typeof dataConsumer.$inferSelect;
+
+/** One row per file a member exported: who, what kind, from which search, and how many listings. */
+export const exportLog = pgTable(
+  "OsmlsExport",
+  {
+    ExportKey: bigserial({ mode: "number" }).primaryKey(),
+    MemberKey: uuid()
+      .notNull()
+      .references(() => member.MemberKey),
+    ExportTimestamp: timestamptz().notNull().defaultNow(),
+    Kind: text().notNull(),
+    // The search the listings came from, as its criteria.
+    Criteria: jsonb().notNull(),
+    ListingCount: integer().notNull(),
+    // Left out of a client export because of their status.
+    OmittedForStatus: integer().notNull(),
+    // Whether the search found more listings than it reads, so that some were never considered.
+    SearchCutOff: boolean().notNull(),
+  },
+  (t) => [check("OsmlsExport_Kind_valid", sql.raw(`"Kind" IN ('agent', 'client')`)), index("OsmlsExport_member").on(t.MemberKey, t.ExportTimestamp)],
+);
