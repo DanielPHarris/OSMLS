@@ -1,4 +1,4 @@
-import { consumerFor, logRequest, metadataDocument, overLimit, readResource, serviceDocument } from "@/lib/data-exchange";
+import { admitRequest, consumerFor, finishRequest, metadataDocument, readResource, serviceDocument } from "@/lib/data-exchange";
 import { ODataError, preferredPageSize } from "@/lib/odata";
 
 /*
@@ -18,19 +18,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   // Unknown, revoked and expired tokens are answered alike, and before anything about the request is looked at.
   if (!consumer) return failure(401, "Unauthorized", "A valid bearer token is required.", { "WWW-Authenticate": "Bearer" });
 
-  if (await overLimit(consumer)) return failure(429, "TooManyRequests", "Too many requests in the last minute. Try again shortly.", { "Retry-After": "60" });
-
   const url = new URL(request.url);
   const path = ((await params).path ?? []).map((part) => decodeURIComponent(part));
   const query = url.search.slice(1);
   const asked = path.join("/") || "(service document)";
+  // One of the consumer's requests for this minute is taken here, in one step with counting them.
+  const admitted = await admitRequest(consumer, asked.replace(/[\u0000-\u001f\u007f]/g, "?"), query);
+  if (admitted === "refused") return failure(401, "Unauthorized", "A valid bearer token is required.", { "WWW-Authenticate": "Bearer" });
+  if (admitted === "limit") return failure(429, "TooManyRequests", "Too many requests in the last minute. Try again shortly.", { "Retry-After": "60" });
+  const done = (status: number, records: number) => finishRequest(admitted, status, records);
   try {
     if (path.length === 0) {
-      await logRequest(consumer, asked, query, 200, 0);
+      await done(200, 0);
       return json(serviceDocument());
     }
     if (path.length === 1 && path[0] === "$metadata") {
-      await logRequest(consumer, asked, query, 200, 0);
+      await done(200, 0);
       return new Response(metadataDocument(), { headers: { ...COMMON, "Content-Type": "application/xml;charset=utf-8" } });
     }
     if (path.length !== 1) throw new ODataError(`There is nothing at "${asked}".`, 404, "NotFound");
@@ -40,7 +43,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     const result = one ? await readResource(one[1], url.searchParams, one[2]) : await readResource(path[0], url.searchParams, undefined, { maxPageSize });
     if ("value" in result && Array.isArray(result.value)) {
       const page = result as import("@/lib/data-exchange").Page;
-      await logRequest(consumer, asked, query, 200, page.value.length);
+      await done(200, page.value.length);
       return json({
         "@odata.context": page.context,
         ...(page.count === undefined ? {} : { "@odata.count": page.count }),
@@ -48,11 +51,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
         ...(page.nextLink ? { "@odata.nextLink": page.nextLink } : {}),
       });
     }
-    await logRequest(consumer, asked, query, 200, 1);
+    await done(200, 1);
     return json(result);
   } catch (err) {
     if (!(err instanceof ODataError)) throw err;
-    await logRequest(consumer, asked, query, err.status, 0);
+    await done(err.status, 0);
     return failure(err.status, err.code, err.message);
   }
 }

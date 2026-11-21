@@ -6,7 +6,6 @@
  * Issue #31.
  */
 import { eq, like, sql } from "drizzle-orm";
-import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GET as feed } from "../src/app/api/reso/[[...path]]/route";
 import { GET as photoRoute } from "../src/app/api/reso-photo/[key]/route";
@@ -18,6 +17,7 @@ import { addPhoto, createListing, removePhoto, updateListing } from "../src/lib/
 import { getMarketTime } from "../src/lib/market-time";
 import { createMember, updateMember } from "../src/lib/members";
 import { MAX_REQUESTS_PER_MINUTE, SERVED_RESOURCES, servedResource } from "../src/lib/rules/data-exchange";
+import { overlapping } from "./overlap";
 
 const run = Date.now();
 const ROOT = "http://localhost:3000/api/reso";
@@ -453,21 +453,78 @@ describe("what a consumer must reconcile, and when access ends", () => {
     expect((await get("/Office?$top=1", token)).status).toBe(401);
     expect((await listDataConsumers(admin))!.find((c) => c.consumerKey === consumer.ConsumerKey)!.state).toBe("Expired");
 
-    // A revocation still being made refuses no one; once it is committed, every request after it is refused.
-    const second = await createDataConsumer(admin, { name: `Proof ${run} revoking` });
-    const other = new Client({ connectionString: process.env.DATABASE_URL });
-    await other.connect();
-    try {
-      await other.query("begin");
-      await other.query(`update "OsmlsDataConsumer" set "RevokedTimestamp" = now(), "RevokedByMemberKey" = $1 where "ConsumerKey" = $2`, [admin.MemberKey, second.consumer.ConsumerKey]);
-      expect((await get("/Office?$top=1", second.token)).status).toBe(200);
-      await other.query("commit");
-    } finally {
-      await other.end();
+    // A request that found its token good, and then waited while the consumer was being revoked, is refused:
+    // records and photos alike are answered as the token is once the wait is over.
+    const rowOf = (key: string) => `select 1 from "OsmlsDataConsumer" where "ConsumerKey" = '${key}' for update`;
+    const revoke = (key: string) => `update "OsmlsDataConsumer" set "RevokedTimestamp" = now(), "RevokedByMemberKey" = '${admin.MemberKey}' where "ConsumerKey" = '${key}'`;
+    for (const request of [(t: string) => get("/Office?$top=1", t), (t: string) => getPhoto("00000000-0000-4000-8000-000000000000", t)]) {
+      const waiting = await createDataConsumer(admin, { name: `Proof ${run} revoking` });
+      const result = await overlapping(rowOf(waiting.consumer.ConsumerKey), revoke(waiting.consumer.ConsumerKey), () => request(waiting.token));
+      expect(result.status === "fulfilled" && result.value.status).toBe(401);
+      expect(await db.select().from(dataRequest).where(eq(dataRequest.ConsumerKey, waiting.consumer.ConsumerKey))).toEqual([]);
     }
-    expect((await get("/Office?$top=1", second.token)).status).toBe(401);
     await expect(createDataConsumer(admin, { name: "  " })).rejects.toThrow("Give the data consumer a name.");
     await expect(createDataConsumer(admin, { name: `Proof ${run} bad`, expiresInDays: "soon" })).rejects.toThrow(/whole number of days/);
+  });
+
+  it("answers a filter value that is not a real date, time or text as a bad query, never as a server error", async () => {
+    const { token } = await createDataConsumer(admin, { name: `Proof ${run} values` });
+    for (const filter of [
+      "CloseDate eq 2026-02-31",
+      "CloseDate gt 2026-13-01",
+      "CloseDate lt 0000-01-01",
+      "ModificationTimestamp gt 2026-02-31T00:00:00Z",
+      "ModificationTimestamp gt 2026-01-01T25:00:00Z",
+      "ModificationTimestamp le 2026-04-31T10:00:00.123+02:00",
+      "City eq 'a%00b'",
+      "ListPrice gt 1e999",
+    ]) {
+      const refused = await get(`/Property?$filter=${filter}`, token);
+      expect(refused.status, filter).toBe(400);
+      expect((await refused.json()).error.code, filter).toBe("BadRequest");
+    }
+    // A page link is given back by the consumer, so its values are checked too: the right shape with a value no time could be.
+    const place = (values: (string | null)[]) => Buffer.from(JSON.stringify(values)).toString("base64url");
+    for (const [orderby, values] of [
+      ["ModificationTimestamp", ["2026-02-31 00:00:00+00", "x"]],
+      ["ModificationTimestamp", ["not a time", "x"]],
+      ["CloseDate", ["2026-02-31", "x"]],
+      ["ListPrice", ["1e999", "x"]],
+      ["ListPrice", ["12; drop table", "x"]],
+      ["City", ["a\u0000b", "x"]],
+      ["City", ["Testville", "a\u0000b"]],
+    ] as const) {
+      const refused = await get(`/Property?$orderby=${orderby}&$skiptoken=${place([...values])}`, token);
+      expect(refused.status, `${orderby} ${values[0]}`).toBe(400);
+    }
+    // A key that could not be a key is a record that is not there.
+    expect((await get("/Property('a%00b')", token)).status).toBe(404);
+    expect((await get(`/Property('${"k".repeat(600)}')`, token)).status).toBe(404);
+    // Real ones on the edges are still read.
+    for (const filter of ["CloseDate eq 2024-02-29", "ModificationTimestamp gt 2026-12-31T23:59:59.999Z", "ModificationTimestamp gt 2026-06-30T23:59:59-08:00"]) {
+      expect((await get(`/Property?$filter=${filter}&$top=1`, token)).status, filter).toBe(200);
+    }
+  });
+
+  it("holds the limit when requests arrive at the same moment, for records and photos alike", async () => {
+    const { consumer, token } = await createDataConsumer(admin, { name: `Proof ${run} burst` });
+    const listing = await createListing(agent, {
+      StandardStatus: "Active", PropertyType: "Residential", ListPrice: "500000", ListingContractDate: "2026-01-01",
+      StreetNumber: "1", StreetName: `Burst Rd ${run}`, City: "Testville", StateOrProvince: "WA", PostalCode: "98987", BedroomsTotal: "3", BathroomsTotalInteger: "2",
+    });
+    const photo = await addPhoto(agent, listing.ListingKey, png);
+    const served = async () =>
+      Number((await db.execute(sql`select count(*)::int as n from "OsmlsDataRequest" where "ConsumerKey" = ${consumer.ConsumerKey}::uuid and "Status" <> 429`)).rows[0].n);
+    // One short of the limit, then twelve at once: six for records, six for a photo.
+    await db.execute(sql`
+      insert into "OsmlsDataRequest" ("ConsumerKey", "ResourceName", "Query", "Status", "RecordCount")
+      select ${consumer.ConsumerKey}::uuid, 'Office', '', 200, 1 from generate_series(1, ${MAX_REQUESTS_PER_MINUTE - 1})`);
+    const burst = await Promise.all(Array.from({ length: 12 }, (_, i) => (i % 2 === 0 ? get("/Office?$top=1", token) : getPhoto(photo.MediaKey, token))));
+    expect(burst.map((r) => r.status).sort()).toEqual([200, ...Array(11).fill(429)]);
+    expect(await served()).toBe(MAX_REQUESTS_PER_MINUTE);
+    // At the limit, a photo is refused like anything else.
+    expect((await getPhoto(photo.MediaKey, token)).status).toBe(429);
+    expect(await served()).toBe(MAX_REQUESTS_PER_MINUTE);
   });
 
   it("stops a consumer that has made too many requests in a minute, and no one else", async () => {

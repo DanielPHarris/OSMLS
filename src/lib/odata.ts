@@ -1,4 +1,5 @@
 import type { EdmType, ServedField, ServedResource } from "./rules/data-exchange";
+import { isCalendarDate } from "./validation";
 
 /*
  * Reading the query options of an OData request against the export allowlist.
@@ -17,6 +18,16 @@ export class ODataError extends Error {
     super(message);
   }
 }
+
+/** Text the database can hold: no control characters, and not absurdly long. */
+export const isPlainText = (v: string) => v.length <= 500 && !/[\u0000-\u001f\u007f]/.test(v);
+
+/**
+ * Whether a date and time in ISO form is a real one. The shape and Date.parse
+ * are not enough: JavaScript rolls "2026-02-31T00:00:00Z" over into March and
+ * calls it valid, and the database refuses it.
+ */
+export const isRealMoment = (v: string) => isCalendarDate(v.slice(0, 10)) && !Number.isNaN(Date.parse(v));
 
 export type Comparison = "eq" | "ne" | "gt" | "ge" | "lt" | "le";
 export type Literal = { kind: "null" } | { kind: "string"; value: string } | { kind: "number"; value: number } | { kind: "date"; value: string } | { kind: "moment"; value: string };
@@ -130,11 +141,22 @@ export function parseFilter(resource: ServedResource, value: string | null, now:
   const literal = (): Literal => {
     const t = list[at++];
     if (!t) throw new ODataError("$filter ends where a value was expected.");
-    if (t.kind === "string") return { kind: "string", value: t.text };
-    if (t.kind === "number") return { kind: "number", value: Number(t.text) };
-    if (t.kind === "date") return { kind: "date", value: t.text };
+    // Every value is checked here to be one the database will accept, so that a
+    // value it would refuse is answered as a bad query and never reaches it.
+    if (t.kind === "string") {
+      if (!isPlainText(t.text)) throw new ODataError("$filter has text that is too long or holds control characters.");
+      return { kind: "string", value: t.text };
+    }
+    if (t.kind === "number") {
+      if (t.text.length > 30 || !Number.isFinite(Number(t.text))) throw new ODataError(`"${t.text.slice(0, 40)}" is not a number this service can compare.`);
+      return { kind: "number", value: Number(t.text) };
+    }
+    if (t.kind === "date") {
+      if (!isCalendarDate(t.text)) throw new ODataError(`"${t.text}" is not a calendar date.`);
+      return { kind: "date", value: t.text };
+    }
     if (t.kind === "moment") {
-      if (Number.isNaN(Date.parse(t.text))) throw new ODataError(`"${t.text}" is not a date and time.`);
+      if (!isRealMoment(t.text)) throw new ODataError(`"${t.text}" is not a date and time.`);
       return { kind: "moment", value: new Date(t.text).toISOString() };
     }
     if (t.kind === "word" && t.text === "null") return { kind: "null" };

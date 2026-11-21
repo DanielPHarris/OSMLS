@@ -7,7 +7,8 @@ import { ListingError } from "./listings";
 import { appUrl } from "./mail";
 import { getMarketTime, withOneSettingsVersion } from "./market-time";
 import { actingStaff, takeAuthorityTurn } from "./members";
-import { ODataError, parseCount, parseExpand, parseFilter, parseOrderBy, parseSelect, type Filter, type Literal, type Order } from "./odata";
+import { ODataError, isPlainText, parseCount, parseExpand, parseFilter, parseOrderBy, parseSelect, type Filter, type Literal, type Order } from "./odata";
+import { isCalendarDate } from "./validation";
 import {
   DEFAULT_PAGE_SIZE,
   DESCRIPTION_CHANGED,
@@ -130,18 +131,53 @@ export async function consumerFor(authorization: string | null): Promise<DataCon
   return found ?? null;
 }
 
-/** Whether a data consumer has made as many requests in the last minute as it may. */
-export async function overLimit(consumer: DataConsumer): Promise<boolean> {
-  const [{ recent }] = await db
-    .select({ recent: sql<number>`count(*)::int` })
-    .from(dataRequest)
-    .where(and(eq(dataRequest.ConsumerKey, consumer.ConsumerKey), sql`${dataRequest.RequestTimestamp} > now() - interval '1 minute'`));
-  return recent >= MAX_REQUESTS_PER_MINUTE;
+/**
+ * Takes one of a data consumer's requests for this minute, or finds there are
+ * none left. Counting and taking are one step per consumer: its row is locked,
+ * the last minute's requests are counted, and the new one is written to the
+ * request log before the lock is let go. So requests arriving at the same
+ * moment are counted in turn, and the log entry is itself the place taken.
+ *
+ * The consumer is read again from that locked row. A request that found its
+ * token good and then waited here while the consumer was being revoked is
+ * refused: it is answered as the token is once the wait is over.
+ *
+ * Returns the key of the log entry, to be finished with `finishRequest` once
+ * the answer is known; "limit" when the consumer has none left this minute
+ * (logged, and not counted against the limit); or "refused" when the token is
+ * no longer good.
+ */
+export async function admitRequest(consumer: DataConsumer, resource: string, query: string): Promise<number | "limit" | "refused"> {
+  return db.transaction(async (tx) => {
+    const [stillGood] = await tx
+      .select({ key: dataConsumer.ConsumerKey })
+      .from(dataConsumer)
+      .where(
+        and(
+          eq(dataConsumer.ConsumerKey, consumer.ConsumerKey),
+          isNull(dataConsumer.RevokedTimestamp),
+          sql`(${dataConsumer.ExpirationTimestamp} is null or ${dataConsumer.ExpirationTimestamp} > now())`,
+        ),
+      )
+      .for("update");
+    if (!stillGood) return "refused";
+    const [{ recent }] = await tx
+      .select({ recent: sql<number>`count(*)::int` })
+      .from(dataRequest)
+      .where(and(eq(dataRequest.ConsumerKey, consumer.ConsumerKey), sql`${dataRequest.Status} <> 429`, sql`${dataRequest.RequestTimestamp} > now() - interval '1 minute'`));
+    const admitted = recent < MAX_REQUESTS_PER_MINUTE;
+    const [row] = await tx
+      .insert(dataRequest)
+      // Status 0 until the answer is known.
+      .values({ ConsumerKey: consumer.ConsumerKey, ResourceName: resource.slice(0, 200), Query: query.slice(0, 2000), Status: admitted ? 0 : 429, RecordCount: 0 })
+      .returning({ key: dataRequest.RequestKey });
+    return admitted ? row.key : "limit";
+  });
 }
 
-/** Records what a data consumer asked for and how many records it was given. */
-export const logRequest = (consumer: DataConsumer, resource: string, query: string, status: number, records: number) =>
-  db.insert(dataRequest).values({ ConsumerKey: consumer.ConsumerKey, ResourceName: resource, Query: query.slice(0, 2000), Status: status, RecordCount: records });
+/** Completes a request's log entry with how it was answered and how many records it was given. */
+export const finishRequest = (requestKey: number, status: number, records: number) =>
+  db.update(dataRequest).set({ Status: status, RecordCount: records }).where(eq(dataRequest.RequestKey, requestKey));
 
 // ---- Reading records ----
 
@@ -243,10 +279,33 @@ function after(order: readonly Order[], keyField: ServedField, place: (string | 
 }
 
 const encodePlace = (place: (string | null)[]) => Buffer.from(JSON.stringify(place)).toString("base64url");
-function decodePlace(token: string, length: number): (string | null)[] {
+
+/** Whether a value in a page link is one this service could have written for a field of that type. */
+function isPlaceValue(type: EdmType, v: string): boolean {
+  if (type === "Edm.Date") return isCalendarDate(v);
+  // As the database writes a time: "2026-11-20 23:29:25.231+00".
+  if (type === "Edm.DateTimeOffset") return /^\d{4}-\d{2}-\d{2} [0-2]\d:[0-5]\d:[0-5]\d(\.\d{1,6})?[+-]\d{2}(:\d{2}){0,2}$/.test(v) && isCalendarDate(v.slice(0, 10)) && Number(v.slice(11, 13)) < 24;
+  if (type === "Edm.String") return isPlainText(v);
+  return v.length <= 40 && /^-?\d+(\.\d+)?$/.test(v);
+}
+
+/**
+ * Reads the place a page link carries. A link is given back by a consumer, so
+ * it is checked like anything else a request holds: its shape, and that every
+ * value in it is one the database will accept for its field.
+ */
+function decodePlace(token: string, order: readonly Order[]): (string | null)[] {
   try {
     const place: unknown = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
-    if (Array.isArray(place) && place.length === length && place.every((v) => v === null || typeof v === "string") && typeof place[length - 1] === "string") return place;
+    if (
+      Array.isArray(place) &&
+      place.length === order.length + 1 &&
+      order.every((o, i) => place[i] === null || (typeof place[i] === "string" && isPlaceValue(o.field.type, place[i]))) &&
+      typeof place[order.length] === "string" &&
+      isPlainText(place[order.length])
+    ) {
+      return place;
+    }
   } catch {
     // Falls through to the refusal below.
   }
@@ -399,6 +458,8 @@ export async function readResource(resourceName: string, params: URLSearchParams
   const order = key === undefined ? parseOrderBy(resource, params.get("$orderby")) : [];
   const wanted = params.get("$top") === null ? null : parseCount("$top", params.get("$top"), 0);
   const skip = parseCount("$skip", params.get("$skip"), 0);
+  // A key the database could not even compare with is a key nothing has.
+  if (key !== undefined && !isPlainText(key)) throw new ODataError(`There is no ${resource.name} with that key.`, 404, "NotFound");
   const token = key === undefined ? params.get("$skiptoken") : null;
   if (token !== null && params.get("$skip") !== null) throw new ODataError("Use $skip or $skiptoken, not both.");
   if (params.get("$count") && !["true", "false"].includes(params.get("$count")!)) throw new ODataError("$count must be true or false.");
@@ -423,7 +484,7 @@ export async function readResource(resourceName: string, params: URLSearchParams
       ],
       sql` and `,
     );
-    const where = token === null ? matching : sql`${matching} and ${after(order, keyField, decodePlace(token, order.length + 1))}`;
+    const where = token === null ? matching : sql`${matching} and ${after(order, keyField, decodePlace(token, order))}`;
     const columns = sql.join(
       [
         sql`${column(keyField)}::text as "__key"`,
