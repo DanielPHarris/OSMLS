@@ -422,7 +422,8 @@ export async function removePhoto(actor: Actor, mediaKey: string, correctionReas
     await tx.update(property).set({ ModificationTimestamp: new Date() }).where(eq(property.ListingKey, listing.ListingKey));
     return photo;
   });
-  await unlink(path.join(mediaDir(), removed.OsmlsStoragePath)).catch(() => {});
+  // The photo's file is not deleted here. A backup being taken may refer to it;
+  // files no record refers to are deleted by the sweep in src/lib/backup.ts.
   return removed;
 }
 

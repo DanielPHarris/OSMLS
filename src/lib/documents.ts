@@ -120,7 +120,13 @@ async function storeFile(bytes: Uint8Array, ext: string): Promise<string> {
   return storedName;
 }
 
-const discardFile = (storedName: string) => unlink(documentPath(storedName)).catch(() => {});
+/**
+ * Deletes a file that was written for a record that was then never made. Only
+ * that: a file some record has ever referred to is not deleted here, because a
+ * backup being taken may refer to it. Those are deleted, once nothing refers
+ * to them, by the sweep in src/lib/backup.ts.
+ */
+const discardUnusedFile = (storedName: string) => unlink(documentPath(storedName)).catch(() => {});
 
 export async function addDocument(
   actor: Actor,
@@ -162,7 +168,7 @@ export async function addDocument(
       return created;
     });
   } catch (err) {
-    await discardFile(storedName);
+    await discardUnusedFile(storedName);
     throw err;
   }
 }
@@ -199,10 +205,11 @@ export async function replaceDocument(
       return [current.OsmlsStoragePath, next] as const;
     });
   } catch (err) {
-    await discardFile(storedName);
+    await discardUnusedFile(storedName);
     throw err;
   }
-  await discardFile(superseded);
+  // The superseded file is left for the sweep: a backup being taken may refer to it.
+  void superseded;
   return updated;
 }
 
@@ -250,7 +257,7 @@ export async function removeDocument(actor: Actor, mediaKey: string, correctionR
     ]);
     return current;
   });
-  await discardFile(removed.OsmlsStoragePath);
+  // The removed document's file is left for the sweep: a backup being taken may refer to it.
   return removed;
 }
 

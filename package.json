@@ -13,6 +13,8 @@
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "feed:fixtures": "tsx --env-file-if-exists=.env scripts/feed-fixtures.ts",
     "alerts:send": "tsx --env-file-if-exists=.env scripts/send-alerts.ts",
+    "backup": "tsx --env-file-if-exists=.env scripts/backup.ts",
+    "restore": "tsx --env-file-if-exists=.env scripts/restore.ts",
     "test": "pnpm test:db && vitest run",
     "test:e2e": "pnpm test:db && playwright test",
     "test:db": "tsx --env-file-if-exists=.env scripts/prepare-test-db.ts"

@@ -144,8 +144,11 @@ restrictive.
   always sends the file as a download.
 - A document someone may not see is left out of what they are sent, and asking for
   it directly gets the same "not found" as a document that does not exist.
-- Replacing or deleting a document destroys the old file. History keeps its name,
-  type, size, and SHA-256 hash, but not its contents.
+- Replacing or deleting a document takes it out of the application at once: no one
+  is served it again. Its file is deleted from disk later, by the next backup run,
+  and stays inside backups until they are pruned (see "backup and recovery"), so
+  deleting a document does not make it unrecoverable at once. History keeps its
+  name, type, size, and SHA-256 hash, but not its contents.
 
 **Showing instructions.** Instructions, requirements, a contact, and lockbox type
 and location.
