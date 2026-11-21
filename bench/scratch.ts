@@ -83,23 +83,34 @@ export async function makeTemplate(name: string, dataset: Dataset, options: { in
   }
 }
 
+/** What the writers do: change prices, enter new listings, or nine price changes to each new listing. */
+export type Kind = "price" | "new" | "mixed";
+export const KINDS: Record<Kind, string> = { price: "Price changes", new: "New listings", mixed: "Nine price changes to one new listing" };
 export type RunRequest =
-  | { mode: "load"; kind: "price"; writers: number; pool: number; warmUpMs: number; measureMs: number }
+  | { mode: "load"; kind: Kind; writers: number; pool: number; warmUpMs: number; measureMs: number }
   | { mode: "held-lock"; holdMs: number };
 export type Percentiles = { p50: number; p95: number; p99: number; max: number };
 export type LoadResult = {
-  kind: "price";
+  kind: Kind;
   writers: number;
   pool: number;
+  // Whether the lock was being timed. Without it there are no lock waits and no count of transactions.
+  instrumented: boolean;
   seconds: number;
   // Counted by the benchmark, in the measured period only.
   commits: number;
+  priceCommits: number;
+  newCommits: number;
   failures: number;
   // Counted by the database, in the measured period only.
-  transactions: number;
+  transactions: number | null;
+  priceHistoryRows: number;
+  newListingRows: number;
   historyRows: number;
-  // False if a change did not really change the price.
+  // False if a price change did not really change the price.
   everyPriceChanged: boolean;
+  // Whether the benchmark's counts and the database's agree. A run where they do not is not a result.
+  valid: boolean;
   perSecond: number;
   latencyMs: Percentiles;
   lockWaitMs: Percentiles | null;

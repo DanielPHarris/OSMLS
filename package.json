@@ -16,6 +16,7 @@
     "backup": "tsx --env-file-if-exists=.env scripts/backup.ts",
     "media:claim": "tsx --env-file-if-exists=.env scripts/claim-media.ts",
     "restore": "tsx --env-file-if-exists=.env scripts/restore.ts",
+    "measure": "tsx --env-file-if-exists=.env bench/measure.ts",
     "test": "pnpm test:db && vitest run",
     "test:e2e": "pnpm test:db && playwright test",
     "test:db": "tsx --env-file-if-exists=.env scripts/prepare-test-db.ts"

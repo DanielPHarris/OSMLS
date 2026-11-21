@@ -16,7 +16,7 @@ if (!/\/osmls_bench_[a-z0-9_]+$/.test(new URL(databaseUrl).pathname)) throw new 
 
 const pool = new Pool({ connectionString: databaseUrl, max: request.mode === "load" ? request.pool : 10 });
 (globalThis as unknown as { osmlsPool?: Pool }).osmlsPool = pool;
-const { updateListing } = await import("../src/lib/listings");
+const { createListing, updateListing } = await import("../src/lib/listings");
 const { formFor } = await import("./dataset");
 type Actor = Parameters<typeof updateListing>[0];
 
@@ -39,8 +39,21 @@ const percentiles = (values: number[]): Percentiles => {
   const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
   return { p50: at(50), p95: at(95), p99: at(99), max: sorted[sorted.length - 1] };
 };
+// New listings get addresses no listing has, each writer's from a range of its own.
+const enter = async (writer: number, n: number) => {
+  const agent = [...agents.values()][writer % agents.size];
+  await createListing(agent, formFor(String(10_000_000 + writer * 1_000_000 + n), `Benchtown new ${writer}`, 400000));
+};
+
 const waitsByTransaction = async () => (await pool.query(`select sum(waited_ms)::float8 as waited from bench_lock_wait group by txid`)).rows.map((r) => r.waited as number);
-const historyRows = async () => Number((await pool.query(`select count(*) from "HistoryTransactional"`)).rows[0].count);
+const counts = async () =>
+  (
+    await pool.query(
+      `select (select count(*) from "HistoryTransactional")::int as history,
+              (select count(*) from "HistoryTransactional" where "ChangeType" = 'Price Change')::int as price,
+              (select count(*) from "Property")::int as listings`,
+    )
+  ).rows[0] as { history: number; price: number; listings: number };
 const instrumented = async () => (await pool.query(`select to_regclass('bench_lock_wait') as t`)).rows[0].t !== null;
 
 async function load(r: Extract<RunRequest, { mode: "load" }>): Promise<LoadResult> {
@@ -48,21 +61,25 @@ async function load(r: Extract<RunRequest, { mode: "load" }>): Promise<LoadResul
   // Each writer has listings of its own, so no two ever wait on the same listing's row.
   const mine = (writer: number) => listings.filter((_, i) => i % r.writers === writer);
   const latencies: number[] = [];
-  let commits = 0;
+  let priceCommits = 0;
+  let newCommits = 0;
   let failures = 0;
   let everyPriceChanged = true;
+  let entered = 0;
   const period = async (ms: number, counted: boolean) => {
     const until = performance.now() + ms;
     await Promise.all(
       Array.from({ length: r.writers }, async (_, writer) => {
         const own = mine(writer);
         for (let i = 0; performance.now() < until; i++) {
+          const isNew = r.kind === "new" || (r.kind === "mixed" && i % 10 === 9);
           const began = performance.now();
           try {
-            const changed = await reprice(own[i % own.length]);
+            const changed = isNew ? (await enter(writer, entered++), true) : await reprice(own[i % own.length]);
             if (!counted) continue;
             latencies.push(performance.now() - began);
-            commits++;
+            if (isNew) newCommits++;
+            else priceCommits++;
             everyPriceChanged &&= changed;
           } catch {
             if (counted) failures++;
@@ -76,18 +93,22 @@ async function load(r: Extract<RunRequest, { mode: "load" }>): Promise<LoadResul
   await period(r.warmUpMs, false);
   const timed = await instrumented();
   if (timed) await pool.query(`truncate bench_lock_wait`);
-  const rowsBefore = await historyRows();
+  const before = await counts();
   const began = performance.now();
   await period(r.measureMs, true);
   const seconds = (performance.now() - began) / 1000;
 
   const waits = timed ? await waitsByTransaction() : null;
+  const after = await counts();
+  const commits = priceCommits + newCommits;
+  const priceHistoryRows = after.price - before.price;
+  const newListingRows = after.listings - before.listings;
   return {
-    kind: r.kind, writers: r.writers, pool: r.pool, seconds, commits, failures,
-    // Without the timing there is no record of transactions to compare with; the history rows still are.
-    transactions: waits ? waits.length : commits,
-    historyRows: (await historyRows()) - rowsBefore,
+    kind: r.kind, writers: r.writers, pool: r.pool, instrumented: timed, seconds, commits, priceCommits, newCommits, failures,
+    transactions: waits ? waits.length : null,
+    priceHistoryRows, newListingRows, historyRows: after.history - before.history,
     everyPriceChanged,
+    valid: commits > 0 && everyPriceChanged && priceHistoryRows === priceCommits && newListingRows === newCommits && (!waits || waits.length === commits),
     perSecond: commits / seconds,
     latencyMs: percentiles(latencies),
     lockWaitMs: waits && waits.length ? percentiles(waits) : null,
