@@ -214,6 +214,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             )}
             <span className="ml-auto flex gap-3">
               <ReportLinks href={(copy) => `/reports/search?${criteriaToParams(criteria)}&copy=${copy}`} />
+              <Link href={`/exports/search?${criteriaToParams(criteria)}&kind=agent`} className="btn-secondary">
+                Export agent CSV
+              </Link>
+              <Link href={`/exports/search?${criteriaToParams(criteria)}&kind=client`} className="btn-secondary">
+                Export client CSV
+              </Link>
             </span>
           </ActionForm>
           <div className="card overflow-x-auto !p-0">

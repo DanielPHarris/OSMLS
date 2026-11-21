@@ -16,9 +16,10 @@ import {
   FOUND_LOOKUPS,
   MAX_PAGE_SIZE,
   MAX_REQUESTS_PER_MINUTE,
-  SERVED_RESOURCES,
-  servedResource,
+  feedView,
+  isFeedName,
   type EdmType,
+  type FeedView,
   type ServedField,
   type ServedResource,
 } from "./rules/data-exchange";
@@ -49,8 +50,11 @@ export const photoUrl = (mediaKey: string) => `${appUrl()}/api/reso-photo/${medi
  * Makes a data consumer and its bearer token. The token is returned here once
  * and cannot be read again: only its hash is stored.
  */
-export async function createDataConsumer(actor: Member | null, input: { name?: unknown; expiresInDays?: unknown }): Promise<{ consumer: DataConsumer; token: string }> {
+export async function createDataConsumer(actor: Member | null, input: { name?: unknown; feed?: unknown; expiresInDays?: unknown }): Promise<{ consumer: DataConsumer; token: string }> {
   if (!can(actor, "data")) throw notFound();
+  // The feed is chosen, never assumed: there is no feed a consumer gets by default.
+  const feed = input.feed;
+  if (!isFeedName(feed)) throw new ListingError("Choose which feed this data consumer reads.", { feed: "Choose a feed." });
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (!name) throw new ListingError("Give the data consumer a name.", { name: "A name is required." });
   if (name.length > 120) throw new ListingError("Keep the name to 120 characters.", { name: "Use 120 characters or fewer." });
@@ -66,6 +70,7 @@ export async function createDataConsumer(actor: Member | null, input: { name?: u
       .insert(dataConsumer)
       .values({
         ConsumerName: name,
+        Feed: feed,
         OsmlsTokenHash: hashToken(token),
         CreatedByMemberKey: by.MemberKey,
         ExpirationTimestamp: days === null ? null : new Date(Date.now() + days * 24 * 60 * 60 * 1000),
@@ -96,6 +101,7 @@ export async function listDataConsumers(actor: Member | null) {
     .select({
       consumerKey: dataConsumer.ConsumerKey,
       name: dataConsumer.ConsumerName,
+      feed: dataConsumer.Feed,
       createdAt: dataConsumer.OriginalEntryTimestamp,
       createdBy: member.MemberFullName,
       expiresAt: dataConsumer.ExpirationTimestamp,
@@ -169,7 +175,7 @@ export async function admitRequest(consumer: DataConsumer, resource: string, que
     const [row] = await tx
       .insert(dataRequest)
       // Status 0 until the answer is known.
-      .values({ ConsumerKey: consumer.ConsumerKey, ResourceName: resource.slice(0, 200), Query: query.slice(0, 2000), Status: admitted ? 0 : 429, RecordCount: 0 })
+      .values({ ConsumerKey: consumer.ConsumerKey, Feed: consumer.Feed, ResourceName: resource.slice(0, 200), Query: query.slice(0, 2000), Status: admitted ? 0 : 429, RecordCount: 0 })
       .returning({ key: dataRequest.RequestKey });
     return admitted ? row.key : "limit";
   });
@@ -202,7 +208,14 @@ const relationOf = (alias: string, columns: readonly { name: string; type: EdmTy
     sql`, `,
   )})`;
 
-const column = (f: ServedField) => sql.identifier(f.name);
+/** A field in a query: its column, or what the consumer's feed gives in its place. */
+const column = (f: ServedField): SQL => (f.given ? sql.raw(f.given) : sql`${sql.identifier(f.name)}`);
+
+/** The feed a data consumer reads. Its record says which; anything else is no feed at all. */
+export function feedOf(consumer: Pick<DataConsumer, "Feed">): FeedView {
+  if (!isFeedName(consumer.Feed)) throw new Error(`Data consumer has an unknown feed "${consumer.Feed}".`);
+  return feedView(consumer.Feed);
+}
 
 /**
  * A field as it is compared, sorted, and paged by. A time is taken to the
@@ -316,11 +329,10 @@ function decodePlace(token: string, order: readonly Order[]): (string | null)[] 
 // ---- The two resources that describe the feed ----
 
 const spaced = (name: string) => name.replace(/([a-z])([A-Z])/g, "$1 $2");
-const described = SERVED_RESOURCES.filter((r) => !r.described);
 
-/** One record per served field of the resources that carry data. */
-const fieldRecords = () =>
-  described.flatMap((r) =>
+/** One record per field the feed serves, of the resources that carry data. */
+const fieldRecords = (view: FeedView) =>
+  view.resources.filter((r) => !r.described).flatMap((r) =>
     r.fields.map((f) => ({ FieldKey: `${r.name}.${f.name}`, ResourceName: r.name, FieldName: f.name, DisplayName: spaced(f.name), ModificationTimestamp: DESCRIPTION_CHANGED })),
   );
 
@@ -333,15 +345,19 @@ const lookupKey = (name: string, value: string) => createHash("sha256").update(`
  * those; such a value is called standard only where the allowlist gives a
  * list to check it against, and it is on that list.
  */
-async function lookupRecords() {
-  const fixed = Object.entries(FIXED_LOOKUPS).flatMap(([name, values]) =>
-    values.map((value) => ({ LookupKey: lookupKey(name, value), LookupName: name, LookupValue: value, StandardLookupValue: value, LegacyODataValue: null, ModificationTimestamp: DESCRIPTION_CHANGED })),
+async function lookupRecords(view: FeedView) {
+  // Only lookups a field of this feed holds, and for each, only what this feed can hold.
+  const fieldsOf = (lookup: string) => view.resources.flatMap((r) => r.fields.filter((f) => f.lookup === lookup).map((f) => ({ resource: r, field: f })));
+  const fixed = Object.keys(FIXED_LOOKUPS).filter((name) => fieldsOf(name).length > 0).flatMap((name) =>
+    view.fixedLookup(name)!.map((value) => ({ LookupKey: lookupKey(name, value), LookupName: name, LookupValue: value, StandardLookupValue: value, LegacyODataValue: null, ModificationTimestamp: DESCRIPTION_CHANGED })),
   );
   const found: typeof fixed = [];
   for (const [name, { sources, standard }] of Object.entries(FOUND_LOOKUPS)) {
     const values = new Map<string, string>();
     for (const source of sources) {
-      const resource = servedResource(source.resource)!;
+      // Looked for only where this feed serves the field, and only among the records this feed serves.
+      const resource = view.resource(source.resource);
+      if (!resource || !resource.fields.some((f) => f.name === source.field)) continue;
       // Only records the feed serves are looked at: the same fixed condition every read of the resource carries.
       const rows = (
         await db.execute(sql`
@@ -378,9 +394,9 @@ const mentions = (filter: Filter | null, test: (f: ServedField) => boolean): boo
   filter === null ? false : "left" in filter ? mentions(filter.left, test) || mentions(filter.right, test) : "operand" in filter ? mentions(filter.operand, test) : test(filter.field);
 
 /** The relation a read is made over, and which of its derived fields that relation already holds. */
-async function relationFor(resource: ServedResource, needsFigures: boolean, asOf: Date): Promise<{ from: SQL; holds: (f: ServedField) => boolean }> {
-  if (resource.described === "fields") return { from: relationOf(resource.table, resource.fields, fieldRecords()), holds: () => true };
-  if (resource.described === "lookups") return { from: relationOf(resource.table, resource.fields, await lookupRecords()), holds: () => true };
+async function relationFor(view: FeedView, resource: ServedResource, needsFigures: boolean, asOf: Date): Promise<{ from: SQL; holds: (f: ServedField) => boolean }> {
+  if (resource.described === "fields") return { from: relationOf(resource.table, resource.fields, fieldRecords(view)), holds: () => true };
+  if (resource.described === "lookups") return { from: relationOf(resource.table, resource.fields, await lookupRecords(view)), holds: () => true };
   const table = sql.identifier(resource.table);
   if (!needsFigures) return { from: sql`${table}`, holds: (f) => !f.derived };
   // Filtering or sorting on the figures needs them for every served listing, not only for one page.
@@ -413,8 +429,8 @@ async function derive(resource: ServedResource, missing: readonly ServedField[],
 }
 
 /** The records of another served resource that belong to the records on a page, held to that resource's own allowlist and condition. */
-async function expanded(expand: NonNullable<ServedResource["expand"]>, parentKeys: string[], asOf: Date): Promise<Map<string, Record<string, unknown>[]>> {
-  const resource = servedResource(expand.resource)!;
+async function expanded(view: FeedView, expand: NonNullable<ServedResource["expand"]>, parentKeys: string[], asOf: Date): Promise<Map<string, Record<string, unknown>[]>> {
+  const resource = view.resource(expand.resource)!;
   const out = new Map<string, Record<string, unknown>[]>();
   if (parentKeys.length === 0) return out;
   const keyField = resource.fields.find((f) => f.name === resource.key)!;
@@ -448,8 +464,14 @@ const OPTIONS = ["$select", "$filter", "$orderby", "$top", "$skip", "$skiptoken"
  * with `maxPageSize`), and only a page the server cut short carries a link to
  * the next.
  */
-export async function readResource(resourceName: string, params: URLSearchParams, key?: string, options: { maxPageSize?: number | null } = {}): Promise<Page | Record<string, unknown>> {
-  const resource = servedResource(resourceName);
+export async function readResource(
+  view: FeedView,
+  resourceName: string,
+  params: URLSearchParams,
+  key?: string,
+  options: { maxPageSize?: number | null } = {},
+): Promise<Page | Record<string, unknown>> {
+  const resource = view.resource(resourceName);
   if (!resource) throw new ODataError(`There is no resource "${resourceName}".`, 404, "NotFound");
   for (const name of params.keys()) if (!OPTIONS.includes(name)) throw new ODataError(`The query option "${name}" is not supported.`);
   const selected = parseSelect(resource, params.get("$select"));
@@ -475,7 +497,7 @@ export async function readResource(resourceName: string, params: URLSearchParams
   return withOneSettingsVersion(async () => {
     // One moment for the whole answer, so every figure in it is as of the same time.
     const asOf = new Date();
-    const { from, holds } = await relationFor(resource, needsFigures, asOf);
+    const { from, holds } = await relationFor(view, resource, needsFigures, asOf);
     // What the result is, without regard to which page of it is wanted.
     const matching = sql.join(
       [
@@ -506,7 +528,7 @@ export async function readResource(resourceName: string, params: URLSearchParams
     await derive(resource, selected.filter((f) => !holds(f)), rows, asOf);
     const shaped = rows.map((row) => Object.fromEntries(selected.map((f) => [f.name, row[f.name] ?? null])) as Record<string, unknown>);
     for (const expand of expands) {
-      const children = await expanded(expand, rows.map((r) => String(r.__key)), asOf);
+      const children = await expanded(view, expand, rows.map((r) => String(r.__key)), asOf);
       rows.forEach((row, i) => (shaped[i][expand.name] = children.get(String(row.__key)) ?? []));
     }
     if (key !== undefined) {
@@ -530,13 +552,19 @@ export async function readResource(resourceName: string, params: URLSearchParams
   });
 }
 
-/** A photo's record, for the feed's photo route. Null for a document, another kind of record, or no record: all alike. */
-export async function servedPhoto(mediaKey: string) {
-  if (!isKey(mediaKey)) return null;
+/**
+ * A photo's record, for the photo route, if the consumer's feed carries it.
+ * Null for a document, a photo of a listing the feed does not carry, another
+ * kind of record, or no record: all alike. The feed's own condition on Media
+ * decides, the same one every read of Media carries.
+ */
+export async function servedPhoto(view: FeedView, mediaKey: string) {
+  const resource = view.resource("Media");
+  if (!isKey(mediaKey) || !resource) return null;
   const [row] = await db
     .select()
     .from(media)
-    .where(and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Photo"), eq(media.ResourceName, "Property")));
+    .where(and(eq(media.MediaKey, mediaKey), resource.only ? sql.raw(`(${resource.only})`) : sql`true`));
   return row ?? null;
 }
 
@@ -544,9 +572,9 @@ export async function servedPhoto(mediaKey: string) {
 
 const xml = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-/** The OData metadata document, written from the allowlist and from nothing else. */
-export function metadataDocument(): string {
-  const types = SERVED_RESOURCES.map((r) => {
+/** The OData metadata document for a feed, written from that feed's part of the allowlist and from nothing else. */
+export function metadataDocument(view: FeedView): string {
+  const types = view.resources.map((r) => {
     const properties = r.fields
       .map((f) => {
         const facets = f.type === "Edm.DateTimeOffset" ? ` Precision="27"` : "";
@@ -558,7 +586,7 @@ export function metadataDocument(): string {
     const navigation = r.expand ? `\n        <NavigationProperty Name="${xml(r.expand.name)}" Type="Collection(org.reso.metadata.${xml(r.expand.resource)})"/>` : "";
     return `      <EntityType Name="${xml(r.name)}">\n        <Key><PropertyRef Name="${xml(r.key)}"/></Key>\n${properties}${navigation}\n      </EntityType>`;
   }).join("\n");
-  const sets = SERVED_RESOURCES.map((r) => {
+  const sets = view.resources.map((r) => {
     const open = `        <EntitySet Name="${xml(r.name)}" EntityType="org.reso.metadata.${xml(r.name)}"`;
     return r.expand ? `${open}>\n          <NavigationPropertyBinding Path="${xml(r.expand.name)}" Target="${xml(r.expand.resource)}"/>\n        </EntitySet>` : `${open}/>`;
   }).join("\n");
@@ -577,7 +605,7 @@ ${sets}
 }
 
 /** The service document: the resources the feed has. */
-export const serviceDocument = () => ({
+export const serviceDocument = (view: FeedView) => ({
   "@odata.context": `${serviceRoot()}/$metadata`,
-  value: SERVED_RESOURCES.map((r) => ({ name: r.name, kind: "EntitySet", url: r.name })),
+  value: view.resources.map((r) => ({ name: r.name, kind: "EntitySet", url: r.name })),
 });

@@ -130,4 +130,27 @@ describe("upgrading an installation that already has staff", () => {
     const { rows: consumers } = await scratch.query(`select count(*)::int as n from "OsmlsDataConsumer"`);
     expect(consumers[0].n).toBe(0);
   });
+
+  it("then puts every existing data consumer on the full feed, which is what it already read", async () => {
+    // Before feeds existed: two consumers, one of them revoked, and a request one of them made.
+    const { rows: [staff] } = await scratch.query(`select "MemberKey" from "Member" where "MemberMlsId" = 'S1'`);
+    const { rows: made } = await scratch.query(
+      `insert into "OsmlsDataConsumer" ("ConsumerName", "OsmlsTokenHash", "CreatedByMemberKey", "RevokedTimestamp", "RevokedByMemberKey")
+       values ('Existing', 'hash-one', $1, null, null), ('Existing, revoked', 'hash-two', $1, now(), $1) returning "ConsumerKey"`,
+      [staff.MemberKey],
+    );
+    await scratch.query(`insert into "OsmlsDataRequest" ("ConsumerKey", "ResourceName", "Query", "Status", "RecordCount") values ($1, 'Property', '', 200, 5)`, [made[0].ConsumerKey]);
+
+    await apply("0014_feeds_and_export.sql");
+
+    const { rows: after } = await scratch.query(`select "ConsumerName" as name, "Feed" as feed, "OsmlsTokenHash" as hash from "OsmlsDataConsumer" order by 1`);
+    expect(after).toEqual([
+      { name: "Existing", feed: "full", hash: "hash-one" },
+      { name: "Existing, revoked", feed: "full", hash: "hash-two" },
+    ]);
+    expect((await scratch.query(`select "Feed" as feed, "RecordCount" as n from "OsmlsDataRequest"`)).rows).toEqual([{ feed: "full", n: 5 }]);
+    // Only the two feeds can be stored.
+    await expect(scratch.query(`update "OsmlsDataConsumer" set "Feed" = 'everything'`)).rejects.toThrow(/OsmlsDataConsumer_Feed_valid/);
+    expect((await scratch.query(`select count(*)::int as n from "OsmlsExport"`)).rows[0].n).toBe(0);
+  });
 });

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { admitRequest, consumerFor, finishRequest, servedPhoto } from "@/lib/data-exchange";
+import { admitRequest, consumerFor, feedOf, finishRequest, servedPhoto } from "@/lib/data-exchange";
 import { mediaDir } from "@/lib/listings";
 
 /*
@@ -16,7 +16,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ key:
   const admitted = await admitRequest(consumer, "photo", key.replace(/[^0-9a-f-]/gi, "?").slice(0, 100));
   if (admitted === "refused") return new Response("A valid bearer token is required.", { status: 401, headers: { "WWW-Authenticate": "Bearer", "Cache-Control": "no-store" } });
   if (admitted === "limit") return new Response("Too many requests in the last minute. Try again shortly.", { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
-  const photo = await servedPhoto(key);
+  const photo = await servedPhoto(feedOf(consumer), key);
   const missing = async () => {
     await finishRequest(admitted, 404, 0);
     return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });

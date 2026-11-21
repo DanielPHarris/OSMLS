@@ -158,7 +158,7 @@ export async function createDataConsumerAction(_previous: DataConsumerFormState,
   const current = await getCurrentMember();
   let made: Awaited<ReturnType<typeof createDataConsumer>>;
   try {
-    made = await createDataConsumer(current, { name: formData.get("name"), expiresInDays: formData.get("expiresInDays") });
+    made = await createDataConsumer(current, { name: formData.get("name"), feed: formData.get("feed"), expiresInDays: formData.get("expiresInDays") });
   } catch (err) {
     return failure(err);
   }

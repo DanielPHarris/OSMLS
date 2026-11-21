@@ -4,7 +4,13 @@ import { useActionState } from "react";
 import type { DataConsumerFormState } from "@/app/admin-actions";
 
 /** Makes a data consumer. Its bearer token is shown here once, and cannot be read again. */
-export function DataConsumerForm({ action }: { action: (previous: DataConsumerFormState, formData: FormData) => Promise<DataConsumerFormState> }) {
+export function DataConsumerForm({
+  action,
+  feeds,
+}: {
+  action: (previous: DataConsumerFormState, formData: FormData) => Promise<DataConsumerFormState>;
+  feeds: { name: string; label: string }[];
+}) {
   const [state, formAction, pending] = useActionState<DataConsumerFormState, FormData>(action, {});
   const error = (field: string) => state.errors?.[field] && <span className="error block">{state.errors[field]}</span>;
   return (
@@ -14,6 +20,20 @@ export function DataConsumerForm({ action }: { action: (previous: DataConsumerFo
           Name of the system or company
           <input name="name" required maxLength={120} className="field" />
           {error("name")}
+        </label>
+        <label className="label">
+          Feed
+          <select name="feed" required defaultValue="" className="field">
+            <option value="" disabled>
+              Choose what it may read
+            </option>
+            {feeds.map((f) => (
+              <option key={f.name} value={f.name}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          {error("feed")}
         </label>
         <label className="label">
           Expires after (days, optional)

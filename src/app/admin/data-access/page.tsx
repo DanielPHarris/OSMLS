@@ -3,7 +3,7 @@ import { ActionForm } from "@/components/action-form";
 import { DataConsumerForm } from "@/components/data-consumer-form";
 import { listDataConsumers, serviceRoot } from "@/lib/data-exchange";
 import { formatDateTime } from "@/lib/format";
-import { SERVED_RESOURCES } from "@/lib/rules/data-exchange";
+import { FEEDS, FEED_NAMES, feedView } from "@/lib/rules/data-exchange";
 import { requireMember } from "@/lib/session";
 import { createDataConsumerAction, revokeDataConsumerAction } from "../../admin-actions";
 
@@ -22,29 +22,36 @@ export default async function DataAccessPage() {
         </p>
       </div>
 
-      <section className="card space-y-3" aria-labelledby="served-heading" data-testid="served-fields">
+      <section className="card space-y-4" aria-labelledby="served-heading" data-testid="served-fields">
         <h2 id="served-heading" className="text-base font-semibold">
-          What the feed carries
+          What each feed carries
         </h2>
         <p className="text-sm text-muted">
-          Every data consumer is given the same fields, and only these. Documents, showing instructions, lock box
-          details, members&rsquo; contact details, MLS staff accounts, and change history are never in the feed.
+          A data consumer reads one feed, chosen when it is added and not changed afterwards; to change it, revoke the
+          consumer and add another. A feed carries only the fields listed. Documents, showing instructions, lock box
+          details, members&rsquo; contact details, MLS staff accounts, and change history are in no feed.
         </p>
-        <dl className="space-y-2 text-sm">
-          {SERVED_RESOURCES.map((r) => (
-            <div key={r.name}>
-              <dt className="font-medium">{r.name}</dt>
-              <dd className="text-xs text-muted">{r.fields.map((f) => f.name).join(", ")}</dd>
-            </div>
-          ))}
-        </dl>
+        {FEED_NAMES.map((name) => (
+          <div key={name} data-testid={`feed-${name}`}>
+            <h3 className="text-sm font-semibold">{FEEDS[name].label}</h3>
+            <p className="text-sm text-muted">{FEEDS[name].purpose}</p>
+            <dl className="mt-2 space-y-2 text-sm">
+              {feedView(name).resources.map((r) => (
+                <div key={r.name}>
+                  <dt className="font-medium">{r.name}</dt>
+                  <dd className="text-xs text-muted">{r.fields.map((f) => f.name).join(", ")}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
       </section>
 
       <section className="card" aria-labelledby="add-heading" data-testid="add-data-consumer">
         <h2 id="add-heading" className="mb-3 text-base font-semibold">
           Add a data consumer
         </h2>
-        <DataConsumerForm action={createDataConsumerAction} />
+        <DataConsumerForm action={createDataConsumerAction} feeds={FEED_NAMES.map((name) => ({ name, label: FEEDS[name].label }))} />
       </section>
 
       <section className="card overflow-x-auto" aria-labelledby="consumers-heading">
@@ -58,6 +65,7 @@ export default async function DataAccessPage() {
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
                 <th className="py-2 pr-3">Name</th>
+                <th className="py-2 pr-3">Feed</th>
                 <th className="py-2 pr-3">Added</th>
                 <th className="py-2 pr-3">Expires</th>
                 <th className="py-2 pr-3">Requests</th>
@@ -69,6 +77,9 @@ export default async function DataAccessPage() {
               {consumers.map((c) => (
                 <tr key={c.consumerKey} className="border-b border-line align-top last:border-0">
                   <td className="py-2 pr-3 font-medium">{c.name}</td>
+                  <td className="py-2 pr-3" data-testid="data-consumer-feed">
+                    {FEEDS[c.feed as keyof typeof FEEDS]?.label ?? c.feed}
+                  </td>
                   <td className="py-2 pr-3 whitespace-nowrap">
                     {formatDateTime(c.createdAt)}
                     <span className="block text-xs text-muted">by {c.createdBy}</span>

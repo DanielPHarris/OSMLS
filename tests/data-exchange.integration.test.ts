@@ -16,7 +16,7 @@ import { addDocument } from "../src/lib/documents";
 import { addPhoto, createListing, removePhoto, updateListing } from "../src/lib/listings";
 import { getMarketTime } from "../src/lib/market-time";
 import { createMember, updateMember } from "../src/lib/members";
-import { MAX_REQUESTS_PER_MINUTE, SERVED_RESOURCES, servedResource } from "../src/lib/rules/data-exchange";
+import { MAX_REQUESTS_PER_MINUTE, SERVED_RESOURCES, feedView, servedResource } from "../src/lib/rules/data-exchange";
 import { overlapping } from "./overlap";
 
 const run = Date.now();
@@ -52,7 +52,7 @@ afterAll(async () => {
 
 describe("what a bearer token can read", () => {
   it("describes exactly the allowlist in its metadata", () => {
-    const metadata = metadataDocument();
+    const metadata = metadataDocument(feedView("full"));
     for (const resource of SERVED_RESOURCES) {
       const type = new RegExp(`<EntityType Name="${resource.name}">([\\s\\S]*?)</EntityType>`).exec(metadata)![1];
       const described = [...type.matchAll(/<Property Name="([^"]+)"/g)].map((m) => m[1]);
@@ -73,7 +73,7 @@ describe("what a bearer token can read", () => {
     const document = await addDocument(agent, listing.ListingKey, { bytes: pdf, name: `secret-document-${run}`, permission: "Private" });
 
     // ---- Staff make a data consumer, and are given its token once ----
-    const { consumer, token } = await createDataConsumer(admin, { name: `Proof ${run}` });
+    const { consumer, token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run}` });
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const [atRest] = await db.select().from(dataConsumer).where(eq(dataConsumer.ConsumerKey, consumer.ConsumerKey));
     expect(JSON.stringify(atRest).includes(token)).toBe(false);
@@ -150,7 +150,7 @@ describe("what a bearer token can read", () => {
   });
 
   it("gives every record once when records change between one page and the next", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} paging` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} paging` });
     const city = `Paging${run}`;
     const fields = (price: number) => ({
       StandardStatus: "Active", PropertyType: "Residential", ListPrice: String(price), ListingContractDate: "2026-01-01",
@@ -190,7 +190,7 @@ describe("what a bearer token can read", () => {
   });
 
   it("gives no link to a next page when the page asked for was given in full", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} top` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} top` });
     // $top is the most the consumer wants, not a page size: one record asked for and given is the whole answer.
     for (const resource of ["Property", "Member", "Office"]) {
       const body = await (await get(`/${resource}?$top=1`, token)).json();
@@ -208,7 +208,7 @@ describe("what a bearer token can read", () => {
   });
 
   it("finds a record by the timestamp it was served with", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} time` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} time` });
     // Stored to the microsecond, as the database's own clock writes it; served to the millisecond.
     const [stored] = await db.select().from(member).where(eq(member.MemberKey, agent.MemberKey));
     await db.execute(sql`update "Member" set "ModificationTimestamp" = '2026-05-05 05:05:05.123456+00' where "MemberKey" = ${agent.MemberKey}`);
@@ -231,12 +231,12 @@ describe("what a bearer token can read", () => {
   });
 
   it("declares living area as a decimal, as the Data Dictionary defines it", () => {
-    expect(metadataDocument()).toMatch(/<Property Name="LivingArea" Type="Edm\.Decimal"/);
+    expect(metadataDocument(feedView("full"))).toMatch(/<Property Name="LivingArea" Type="Edm\.Decimal"/);
   });
 
   it("is managed only by staff who hold Manage data access", async () => {
     for (const viewer of [agent, { ...admin, OsmlsCapabilities: admin.OsmlsCapabilities.filter((c) => c !== "data") }, null]) {
-      await expect(createDataConsumer(viewer, { name: `Proof ${run} refused` })).rejects.toThrow("Not found.");
+      await expect(createDataConsumer(viewer, { feed: "full", name: `Proof ${run} refused` })).rejects.toThrow("Not found.");
       expect(await listDataConsumers(viewer)).toBeNull();
     }
     expect(await db.select().from(dataConsumer).where(eq(dataConsumer.ConsumerName, `Proof ${run} refused`))).toEqual([]);
@@ -245,7 +245,7 @@ describe("what a bearer token can read", () => {
 
 describe("what describes the feed", () => {
   it("lists every served field in the Field resource, and nothing else", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} field` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} field` });
     const data = SERVED_RESOURCES.filter((r) => !r.described);
     const all = await (await get("/Field?$count=true&$top=200", token)).json();
     expect(all["@odata.count"]).toBe(data.reduce((n, r) => n + r.fields.length, 0));
@@ -259,7 +259,7 @@ describe("what describes the feed", () => {
   });
 
   it("says in the metadata which lookup each such field holds, and lists those values in the Lookup resource", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} lookup` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} lookup` });
     const city = `Lookup City ${run}`;
     const listing = await createListing(agent, {
       StandardStatus: "Active", PropertyType: "Residential", ListPrice: "500000", ListingContractDate: "2026-01-01",
@@ -269,7 +269,7 @@ describe("what describes the feed", () => {
     await addPhoto(agent, listing.ListingKey, png);
     await addDocument(agent, listing.ListingKey, { bytes: pdf, name: "Plans", permission: "Private" });
 
-    const metadata = metadataDocument();
+    const metadata = metadataDocument(feedView("full"));
     for (const resource of SERVED_RESOURCES) {
       for (const f of resource.fields) {
         const declared = new RegExp(`<Property Name="${f.name}" Type="Edm\\.String"[^>]*>\\s*<Annotation Term="RESO\\.OData\\.Metadata\\.LookupName" String="${f.lookup}"/>`).test(
@@ -314,7 +314,7 @@ describe("what describes the feed", () => {
 
 describe("reading listings with what belongs to them", () => {
   it("expands a listing's photos, held to the same allowlist, and nothing else", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} expand` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} expand` });
     const listing = await createListing(agent, {
       StandardStatus: "Active", PropertyType: "Residential", ListPrice: "500000", ListingContractDate: "2026-01-01",
       StreetNumber: "1", StreetName: `Expand Rd ${run}`, City: "Testville", StateOrProvince: "WA", PostalCode: "98990", BedroomsTotal: "3", BathroomsTotalInteger: "2",
@@ -342,11 +342,11 @@ describe("reading listings with what belongs to them", () => {
     expect((await (await get(`/Property('${listing.ListingKey}')?$expand=Media`, token)).json()).Media).toHaveLength(2);
     // Only what the allowlist names for the resource can be expanded.
     for (const path of ["/Property?$expand=Documents", "/Property?$expand=ListAgent", "/Member?$expand=Media", "/Media?$expand=Property"]) expect((await get(path, token)).status, path).toBe(400);
-    expect(metadataDocument()).toContain('<NavigationProperty Name="Media" Type="Collection(org.reso.metadata.Media)"/>');
+    expect(metadataDocument(feedView("full"))).toContain('<NavigationProperty Name="Media" Type="Collection(org.reso.metadata.Media)"/>');
   });
 
   it("filters, sorts, counts and pages on the days-on-market figures, using the one calculation", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} figures` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} figures` });
     const city = `Figures${run}`;
     const days = (n: number) => new Date(Date.now() - n * 86_400_000);
     const fields = (number: number, status = "Active") => ({
@@ -395,7 +395,7 @@ describe("reading listings with what belongs to them", () => {
 
 describe("what a consumer must reconcile, and when access ends", () => {
   it("drops an agent made MLS staff from the feed, and brings them back if they are made an agent again", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} members` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} members` });
     const made = (await createMember(admin, { firstName: "Feed", lastName: `Member${run}`, email: `feed-${run}@osmls.example`, memberId: `DX${run}`, role: "agent", officeKey: agent.OfficeKey!, phone: "" })).member;
     const inFeed = async () => (await (await get(`/Member?$filter=MemberMlsId eq 'DX${run}'`, token)).json()).value.length === 1;
     const details = { firstName: made.MemberFirstName, lastName: made.MemberLastName, memberId: made.MemberMlsId, phone: "" };
@@ -417,7 +417,7 @@ describe("what a consumer must reconcile, and when access ends", () => {
   });
 
   it("moves a listing's timestamp when a photo is added or removed, so a poll says to read its photos again", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} photos` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} photos` });
     const listing = await createListing(agent, {
       StandardStatus: "Active", PropertyType: "Residential", ListPrice: "500000", ListingContractDate: "2026-01-01",
       StreetNumber: "1", StreetName: `Photo Rd ${run}`, City: "Testville", StateOrProvince: "WA", PostalCode: "98988", BedroomsTotal: "3", BathroomsTotalInteger: "2",
@@ -447,7 +447,7 @@ describe("what a consumer must reconcile, and when access ends", () => {
   });
 
   it("refuses an expired token, and a revoked one from the moment the revocation is committed", async () => {
-    const { consumer, token } = await createDataConsumer(admin, { name: `Proof ${run} expiry`, expiresInDays: 1 });
+    const { consumer, token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} expiry`, expiresInDays: 1 });
     expect((await get("/Office?$top=1", token)).status).toBe(200);
     await db.update(dataConsumer).set({ ExpirationTimestamp: new Date(Date.now() - 1000) }).where(eq(dataConsumer.ConsumerKey, consumer.ConsumerKey));
     expect((await get("/Office?$top=1", token)).status).toBe(401);
@@ -458,17 +458,17 @@ describe("what a consumer must reconcile, and when access ends", () => {
     const rowOf = (key: string) => `select 1 from "OsmlsDataConsumer" where "ConsumerKey" = '${key}' for update`;
     const revoke = (key: string) => `update "OsmlsDataConsumer" set "RevokedTimestamp" = now(), "RevokedByMemberKey" = '${admin.MemberKey}' where "ConsumerKey" = '${key}'`;
     for (const request of [(t: string) => get("/Office?$top=1", t), (t: string) => getPhoto("00000000-0000-4000-8000-000000000000", t)]) {
-      const waiting = await createDataConsumer(admin, { name: `Proof ${run} revoking` });
+      const waiting = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} revoking` });
       const result = await overlapping(rowOf(waiting.consumer.ConsumerKey), revoke(waiting.consumer.ConsumerKey), () => request(waiting.token));
       expect(result.status === "fulfilled" && result.value.status).toBe(401);
       expect(await db.select().from(dataRequest).where(eq(dataRequest.ConsumerKey, waiting.consumer.ConsumerKey))).toEqual([]);
     }
-    await expect(createDataConsumer(admin, { name: "  " })).rejects.toThrow("Give the data consumer a name.");
-    await expect(createDataConsumer(admin, { name: `Proof ${run} bad`, expiresInDays: "soon" })).rejects.toThrow(/whole number of days/);
+    await expect(createDataConsumer(admin, { feed: "full", name: "  " })).rejects.toThrow("Give the data consumer a name.");
+    await expect(createDataConsumer(admin, { feed: "full", name: `Proof ${run} bad`, expiresInDays: "soon" })).rejects.toThrow(/whole number of days/);
   });
 
   it("answers a filter value that is not a real date, time or text as a bad query, never as a server error", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} values` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} values` });
     for (const filter of [
       "CloseDate eq 2026-02-31",
       "CloseDate gt 2026-13-01",
@@ -507,7 +507,7 @@ describe("what a consumer must reconcile, and when access ends", () => {
   });
 
   it("follows its own page links whatever the records hold: long text, line breaks, quotes, and empty values", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} remarks` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} remarks` });
     const city = `Remarks${run}`;
     const remarks = ["B ".repeat(300).trim(), "A first line\nand a second", "C it's \"quoted\" & 100% odd / ünïcode\ttabbed", ""];
     const made = [];
@@ -543,7 +543,7 @@ describe("what a consumer must reconcile, and when access ends", () => {
   });
 
   it("accepts the page link it gives for every field of every resource, in both directions", async () => {
-    const { token } = await createDataConsumer(admin, { name: `Proof ${run} every field` });
+    const { token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} every field` });
     for (const resource of SERVED_RESOURCES) {
       for (const f of resource.fields.filter((field) => !field.derived || field.queryable)) {
         for (const direction of ["asc", "desc"]) {
@@ -558,7 +558,7 @@ describe("what a consumer must reconcile, and when access ends", () => {
   });
 
   it("holds the limit when requests arrive at the same moment, for records and photos alike", async () => {
-    const { consumer, token } = await createDataConsumer(admin, { name: `Proof ${run} burst` });
+    const { consumer, token } = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} burst` });
     const listing = await createListing(agent, {
       StandardStatus: "Active", PropertyType: "Residential", ListPrice: "500000", ListingContractDate: "2026-01-01",
       StreetNumber: "1", StreetName: `Burst Rd ${run}`, City: "Testville", StateOrProvince: "WA", PostalCode: "98987", BedroomsTotal: "3", BathroomsTotalInteger: "2",
@@ -579,8 +579,8 @@ describe("what a consumer must reconcile, and when access ends", () => {
   });
 
   it("stops a consumer that has made too many requests in a minute, and no one else", async () => {
-    const busy = await createDataConsumer(admin, { name: `Proof ${run} busy` });
-    const quiet = await createDataConsumer(admin, { name: `Proof ${run} quiet` });
+    const busy = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} busy` });
+    const quiet = await createDataConsumer(admin, { feed: "full", name: `Proof ${run} quiet` });
     await db.execute(sql`
       insert into "OsmlsDataRequest" ("ConsumerKey", "ResourceName", "Query", "Status", "RecordCount")
       select ${busy.consumer.ConsumerKey}::uuid, 'Office', '', 200, 1 from generate_series(1, ${MAX_REQUESTS_PER_MINUTE})`);

@@ -711,8 +711,8 @@ property.
 
 The first of three slices of "data exchange". An outside system holding a bearer
 token reads listings, agents, offices and photo records in the RESO Web API's
-OData form, at `/api/reso`. Feeds with differing contents, file export, and
-imports are the second and third slices and are not built.
+OData form, at `/api/reso`. A second, narrower feed and file export are the second
+slice, described after this one. Imports are the third and are not built.
 
 **A distribution policy.** The feed is a new way for listing data to leave OSMLS.
 It is wider than a client copy: it carries listings in every status, parcel and
@@ -844,13 +844,103 @@ What the final run does **not** show:
 - The first run's Data Dictionary step was made with a 1,000-record limit and
   without strict mode, to survey everything at once; the final run used neither.
 
-Not included: writing through the API, EntityEvent, feeds with differing field
+Not included in this slice: writing through the API, EntityEvent, feeds with differing field
 sets, file export, imports, webhooks, and a hosted instance.
+
+### Added since 0.1: feeds and file export
+
+The second of three slices of "data exchange": a second feed, one feed for each
+data consumer, and exporting search results to a file.
+
+**Feeds.** A feed is what one kind of data consumer may read. Each is written out
+by hand in [src/lib/rules/data-exchange.ts](src/lib/rules/data-exchange.ts), beside
+the allowlist, and can only narrow it: it names fields that are on the allowlist,
+may add a condition on which records it carries, and may give less than a stored
+value. A test fails if a feed names anything that is not on the allowlist.
+
+| | Full | Public display |
+| --- | --- | --- |
+| Listings | Every status | Active, Active Under Contract, Pending, Closed |
+| Property | Everything on the allowlist | Keys, listing number, status, type, list price, sale price and date, address, city, state, ZIP code, bedrooms, bathrooms, living area, lot size, year built, public remarks, last change |
+| Left off Property | Nothing | Parcel, county, coordinates, original list price, days on market, street parts, contract and on-market dates, other timestamps |
+| Member | Agents, with member ID and status | Agents who have a listing in this feed: key, name, office |
+| Office | With office ID, status, phone, city, state | Offices that have a listing in this feed: key and name |
+| Media | Photos of any listing | Photos of listings in this feed |
+
+- **"Public display" is what the narrower feed is meant for.** It is still read only
+  with a token, and being in it does not by itself mean a consumer may publish a
+  listing: that is between the MLS and the consumer.
+- **Everything follows the feed.** A consumer's metadata, Field and Lookup
+  resources, responses, query options, expansions, reads by key, and photos all
+  answer for its own feed. A field or record outside it does not exist for that
+  consumer. Lookup values found in data come only from records in that feed.
+- **Sale details only for sales.** In the public display feed, a sale price and date
+  are given only for a Closed listing, as on a client copy. A filter or a sort sees
+  what a response would give, so a figure that is not served cannot be found by
+  asking about it.
+- **Leaving a feed.** A listing that moves to a status its feed does not carry stays
+  in the database and leaves that feed, taking its photos with it, and its agent and
+  office too if it was their only one there. Polling cannot report that. A consumer
+  reconciles by reading current keys. A listing entering the feed is a change to it,
+  so a poll reports it.
+- **One feed for each consumer.** Staff choose the feed when adding a data consumer;
+  nothing is chosen for them. It is not changed afterwards: to change it, revoke the
+  consumer and add another, so a token never changes what it can read. Each request
+  is logged with the feed that answered. On upgrade, existing consumers are on the
+  full feed, which is what they already read.
+
+**File export.** From a search, a member exports the listings found as a CSV file:
+a header row, then one row for each listing, and nothing else.
+
+| Kind | Columns, in this order |
+| --- | --- |
+| Client export | ListingId, StandardStatus, PropertyType, ListPrice, ClosePrice, CloseDate, UnparsedAddress, City, StateOrProvince, PostalCode, BedroomsTotal, BathroomsTotalInteger, LivingArea, LotSizeAcres, YearBuilt, PublicRemarks, ListAgentFullName, ListOfficeName |
+| Agent export | The client export's columns, then OriginalListPrice, CountyOrParish, ParcelNumber, DaysOnMarket, CumulativeDaysOnMarket |
+
+- **The client export is a client copy as a file**: the same rule builds it, so it
+  holds the four client-copy statuses, and a sale price and date only for a sale.
+- **Never in a file**, of either kind: showing instructions, lock box details,
+  documents, history, flags, keys, and photo addresses. That is stricter than a
+  printed agent copy, which gives showing details to members allowed to see them: a
+  file travels further than a page.
+- **Which listings.** A search reads at most 100 listings, in its order, and says
+  whether there were more; it does not count them, and neither does the export. The
+  file is made from those listings and no others. For a client export, listings in
+  other statuses are then left out, so it can hold fewer than 100 while more
+  eligible listings lie beyond the first 100.
+- **What is disclosed.** Before the download, the export page states how many
+  listings the file holds, how many were left out of a client export for their
+  status, and, when the search was cut off, that the rest were not considered and
+  that their number is not known. The file's name gives its kind, the number of
+  listings, and the date.
+- **Who.** Any active member. Each download is recorded with who, when, which kind,
+  the search, and those figures. Looking at the export page records nothing.
+- **Safety.** UTF-8. Text a spreadsheet would run as a formula is given a leading
+  apostrophe so that it is shown and not run.
+
+**RESO's certification tool, on each feed.** Run locally on 2026-11-20, version
+0.13.1, on the code at commit `3cb4a58`, with the same limits as before: not a
+certification, variations not checked, plain HTTP, and small synthetic data.
+
+| Feed | Web API Core 2.1.0 | Data Dictionary 2.1, strict |
+| --- | --- | --- |
+| Full | 153 passed, 0 failed, 173 skipped; 18 optional scenarios not supported | 6 steps passed, 1 skipped; 756 records; 49 warnings |
+| Public display | 147 passed, 0 failed, 179 skipped; 18 optional scenarios not supported | 6 steps passed, 1 skipped; 570 records; 32 warnings |
+
+The six scenarios the public display feed skips and the full feed passes are the
+lookup tests on Member and Office. In that feed neither resource has a field that
+holds one of a list of values, so there is nothing for those tests to run on: they
+are tests that do not apply, not failures and not passes. A feed's fields are a
+disclosure decision and are not widened to make a test run.
+
+Not included: feeds defined by staff, a choice of fields for one consumer, exports
+of collections or single listings, other file formats, scheduled or emailed exports,
+and an exact count of a search that was cut off.
 
 ### Not yet built
 
 Client accounts and scheduled email to clients, brokerage-wide access,
-self-service password reset, feeds with differing contents, file export, imports,
+self-service password reset, imports,
 fair-housing checks on remarks, and production operations (monitoring, backups,
 recovery). See the charter for the planned order.
 
@@ -919,7 +1009,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, staff permissions, compliance flags, and the data exchange feed in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, staff permissions, compliance flags, the data exchange feeds, and file export in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -980,8 +1070,9 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `OsmlsMarketTimeSettings` (table) | The market-time settings, one row per saved version |
 | `OsmlsFlag` (table) | Flags raised on listings, and how each was closed |
 | `OsmlsRelistingLink` (table) | The earlier listing compliance staff said a listing continues, or none |
-| `OsmlsDataConsumer` (table) | Outside systems that may read the data exchange feed, each with the hash of its bearer token |
-| `OsmlsDataRequest` (table) | Each request a data consumer made, and how many records it was given |
+| `OsmlsDataConsumer` (table) | Outside systems that may read a data exchange feed, each with its feed and the hash of its bearer token |
+| `OsmlsDataRequest` (table) | Each request a data consumer made, the feed that answered, and how many records it was given |
+| `OsmlsExport` (table) | Each file a member exported from a search: who, which kind, the search, and how many listings |
 | `Member.OsmlsUserId` | Links a member to their sign-in account |
 | `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
 | `Media.OsmlsStoragePath` | Generated file name of the stored photo or document |
