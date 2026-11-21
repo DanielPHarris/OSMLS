@@ -31,11 +31,15 @@ describe("a server error", () => {
     for (const absent of [SECRET, "203.0.113.9", "could not save", "/search", "session="]) expect(text.includes(absent), absent).toBe(false);
   });
 
-  it("uses the caller's request identifier only if it is a plain one", () => {
-    const withId = (id: string) => serverErrorLine(failure, { ...request, headers: { "x-request-id": id } }, context).requestId;
-    expect(withId("req-42.a_b")).toBe("req-42.a_b");
-    expect(withId(`id ${SECRET}`)).toMatch(/^[0-9a-f-]{36}$/);
-    expect(withId("x".repeat(65))).toMatch(/^[0-9a-f-]{36}$/);
+  it("makes its own request identifier, and never copies one the caller sent", () => {
+    // Anything a caller sends can be personal, however plain its characters: here, a phone number.
+    for (const sent of ["206-555-0199", "req-42.a_b", `id ${SECRET}`]) {
+      const line = serverErrorLine(failure, { ...request, headers: { "x-request-id": sent, "x-correlation-id": sent } }, context);
+      expect(line.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(JSON.stringify(line).includes(sent), sent).toBe(false);
+    }
+    const two = [1, 2].map(() => serverErrorLine(failure, request, context).requestId);
+    expect(two[0]).not.toBe(two[1]);
   });
 
   it("is still one line when what was thrown is not an error", () => {

@@ -12,7 +12,7 @@ export type ServerErrorLine = {
   level: "error";
   event: "server-error";
   at: string;
-  // The caller's own identifier if it sent a plain one, otherwise one made here.
+  // Made here for this line. Nothing a caller sent is copied, however plain it looks: it could be personal.
   requestId: string;
   method: string;
   // The route's pattern, such as /listings/[id]: never the address asked for.
@@ -23,21 +23,21 @@ export type ServerErrorLine = {
   digest: string | null;
 };
 
+// The reference Next.js makes for the error page is a short hash. Anything else in its place is left out.
 const PLAIN_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
 export function serverErrorLine(
   err: unknown,
-  request: { method: string; headers: Record<string, string | string[] | undefined> },
+  request: { method: string },
   context: { routePath: string; routeType: string },
   now = new Date(),
 ): ServerErrorLine {
-  const given = request.headers["x-request-id"];
   const digest = typeof err === "object" && err !== null && "digest" in err ? String((err as { digest: unknown }).digest) : null;
   return {
     level: "error",
     event: "server-error",
     at: now.toISOString(),
-    requestId: typeof given === "string" && PLAIN_ID.test(given) ? given : randomUUID(),
+    requestId: randomUUID(),
     method: request.method,
     route: context.routePath,
     routeType: context.routeType,

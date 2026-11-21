@@ -1184,7 +1184,7 @@ not exist for anyone else.
 
 **Server errors.** Each server error the application did not handle writes one
 line of JSON to the process log (`"event":"server-error"`): a request identifier
-(the caller's `X-Request-Id` if it sent a plain one), the method, the route's
+made by the application (never one the caller sent), the method, the route's
 pattern such as `/listings/[id]`, the kind of error, and the reference shown on
 the error page. That line holds no query string, form contents, address, member,
 or error message. Next.js also prints the error itself to the log, as it always
