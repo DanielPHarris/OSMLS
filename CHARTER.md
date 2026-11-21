@@ -159,6 +159,12 @@ been validated against usage data.
 - Public consumer and agent websites.
 - Native mobile apps.
 - Elaborate fine-processing functionality.
+- Migrating an existing MLS's historical records into OSMLS: closed and ended
+  listings, and past status and price changes with their original dates.
+  Decided by the maintainer on 2026-11-21, when imports were scoped to new
+  listings. It is better designed against a real MLS's source data. Until then
+  OSMLS can support evaluation and new listing entry, and cannot take over an
+  existing MLS's history.
 
 Basic listing emails and shareable pages cover initial client delivery.
 
@@ -418,7 +424,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | --- | --- | --- |
    | 1 | A read-only RESO Web API endpoint with bearer tokens, and RESO's certification tool run against it | Done 2026-11-20 (issue #31) |
    | 2 | Controlled distribution: more than one kind of feed, and file export of search results | Done 2026-11-20 (issue #33) |
-   | 3 | Imports through the same validation and history as hand entry | Not started |
+   | 3 | Imports of new listings through the same validation and history as hand entry | In progress (issue #35) |
 
    Decided by the maintainer on 2026-11-20 for slice 1:
    - Three slices, in the order above.
