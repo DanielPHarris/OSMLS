@@ -19,9 +19,12 @@ export default defineConfig({
   // every other test depend on, and the compliance test changes one of those
   // figures, so each runs alone, after the rest have finished.
   projects: [
-    { name: "main", testIgnore: /(permissions|compliance)\.spec\.ts/ },
+    { name: "main", testIgnore: /(permissions|compliance|operations)\.spec\.ts/ },
     { name: "settings", testMatch: /permissions\.spec\.ts/, dependencies: ["main"] },
     { name: "compliance", testMatch: /compliance\.spec\.ts/, dependencies: ["settings"] },
+    // The operations test runs the whole scheduled command, which would send the
+    // alerts other tests are in the middle of setting up, so it runs last.
+    { name: "operations", testMatch: /operations\.spec\.ts/, dependencies: ["compliance"] },
   ],
   webServer: {
     // The production build, not the development server: the development server
