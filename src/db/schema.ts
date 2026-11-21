@@ -536,6 +536,48 @@ export const relistingLink = pgTable(
   (t) => [check("OsmlsRelistingLink_not_itself", sql`${t.PredecessorKey} IS NULL OR ${t.PredecessorKey} <> ${t.ListingKey}`)],
 );
 
+/*
+ * An outside system allowed to read the data exchange feed. It is not a member
+ * and has no sign-in: it presents a bearer token, of which only a hash is kept.
+ */
+export const dataConsumer = pgTable(
+  "OsmlsDataConsumer",
+  {
+    ConsumerKey: uuid().primaryKey().defaultRandom(),
+    ConsumerName: text().notNull(),
+    OsmlsTokenHash: text().notNull().unique(),
+    CreatedByMemberKey: uuid()
+      .notNull()
+      .references(() => member.MemberKey),
+    OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
+    // Null: the token does not expire by itself.
+    ExpirationTimestamp: timestamptz(),
+    RevokedTimestamp: timestamptz(),
+    RevokedByMemberKey: uuid().references(() => member.MemberKey),
+  },
+  (t) => [
+    check("OsmlsDataConsumer_name_present", sql`length(trim(${t.ConsumerName})) > 0`),
+    check("OsmlsDataConsumer_revoked_by_someone", sql`(${t.RevokedTimestamp} IS NULL) = (${t.RevokedByMemberKey} IS NULL)`),
+  ],
+);
+
+/** One row per request a data consumer made: what was asked for, and how many records it was given. */
+export const dataRequest = pgTable(
+  "OsmlsDataRequest",
+  {
+    RequestKey: bigserial({ mode: "number" }).primaryKey(),
+    ConsumerKey: uuid()
+      .notNull()
+      .references(() => dataConsumer.ConsumerKey),
+    RequestTimestamp: timestamptz().notNull().defaultNow(),
+    ResourceName: text().notNull(),
+    Query: text().notNull(),
+    Status: integer().notNull(),
+    RecordCount: integer().notNull(),
+  },
+  (t) => [index("OsmlsDataRequest_consumer").on(t.ConsumerKey, t.RequestTimestamp)],
+);
+
 export type Media = typeof media.$inferSelect;
 export type HistoryRow = typeof historyTransactional.$inferSelect;
 export type SavedSearch = typeof savedSearch.$inferSelect;
@@ -543,3 +585,4 @@ export type Collection = typeof collection.$inferSelect;
 export type Share = typeof share.$inferSelect;
 export type MarketTimeSettingsRow = typeof marketTimeSettings.$inferSelect;
 export type Flag = typeof flag.$inferSelect;
+export type DataConsumer = typeof dataConsumer.$inferSelect;

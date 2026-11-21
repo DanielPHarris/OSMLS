@@ -11,10 +11,11 @@ an attempt to match the feature set of commercial MLS systems.
 **Version 0.1, in development. Not production-ready.**
 
 - It has not been used by a real MLS and has had no security review.
-- It is **not RESO certified** and has not been run through RESO's certification
-  tests. Its field names and lookup values follow the RESO Data Dictionary 2.1.
-  Data types have not been checked against the Data Dictionary, and there is no
-  RESO Web API endpoint yet.
+- It is **not RESO certified**. Only RESO certifies, and OSMLS has not been
+  submitted. Its field names and lookup values follow the RESO Data Dictionary
+  2.1, and it has a read-only RESO Web API endpoint. RESO's own certification
+  tool has been run against a local instance, with the limits set out under
+  "data exchange" below; a local run is not a certification.
 - All people, offices, and listings in the demo are synthetic.
 
 [CHARTER.md](CHARTER.md) records the project's purpose, decisions, scope, and what
@@ -573,6 +574,7 @@ by individual staff accounts:
 | Manage offices | Add, edit, deactivate and reactivate offices; group them into brokerages |
 | Manage settings | Change the market-time settings |
 | Manage compliance | See and close flags, and say which earlier listing a listing continues (added with compliance flags, below) |
+| Manage data access | Add and revoke the outside systems that may read the data exchange feed (added with data exchange, below) |
 | Manage staff | Add staff accounts, change a role to or from staff, grant and revoke capabilities, and do any member action to a staff account |
 
 - **They divide administration and nothing else.** Every active staff account can
@@ -705,12 +707,152 @@ redacting free text, fines, deadlines, appeals, email about flags, flags on
 members or offices, bulk actions, and rules that two listings are never the same
 property.
 
+### Added since 0.1: data exchange, a read-only RESO Web API feed
+
+The first of three slices of "data exchange". An outside system holding a bearer
+token reads listings, agents, offices and photo records in the RESO Web API's
+OData form, at `/api/reso`. Feeds with differing contents, file export, and
+imports are the second and third slices and are not built.
+
+**A distribution policy.** The feed is a new way for listing data to leave OSMLS.
+It is wider than a client copy: it carries listings in every status, parcel and
+coordinates, and agent and office records. It is narrower than what a member
+sees: it never carries documents, showing instructions, or lock box details.
+What it carries is for the MLS to decide; these are OSMLS's starting choices.
+
+**The allowlist.** [src/lib/rules/data-exchange.ts](src/lib/rules/data-exchange.ts)
+lists every resource and field the feed may carry, by hand. It is the only source
+for the feed's metadata, its Field and Lookup resources, its responses, and what
+a query may name. A column added to the database is not served until it is added
+there. **Data access** in the page header shows the list to staff.
+
+| Resource | Carries |
+| --- | --- |
+| Property | Every listing: identifiers, status, type, prices, dates, address, county, parcel, coordinates, rooms and size, public remarks, listing agent and office keys, timestamps, days on market and cumulative days on market |
+| Member | Agents only: keys, member ID, name, status, office. No email or phone, and no MLS staff accounts |
+| Office | Keys, office ID, name, main office, status, phone, city, state |
+| Media | Photos of listings only: keys, order, description, type, and an address to fetch the photo from |
+| Field, Lookup | The served fields, and the values of the fields that hold one of a list |
+
+Never in the feed: showing instructions and contacts, lock box fields, documents
+and their records, change history, flags, relisting links, saved work, shares,
+members' email and phone, roles and capabilities, sign-in identities, and file
+storage details. Naming something that is not served, in any query option or in
+the address, is an error, never a silent omission.
+
+**Reading it.**
+
+- `$select`, `$filter` (comparisons joined by `and`, `or`, `not`), `$orderby`,
+  `$top`, `$skip`, `$count`, one record by key, and `$expand=Media` on Property.
+- `$top` is the most records wanted. A page holds at most 200; only a page the
+  server cut short carries `@odata.nextLink`. `Prefer: odata.maxpagesize` asks
+  for smaller pages.
+- A page link carries the place of the last record read, not a count to skip, so
+  records added or changed while a consumer is reading do not make it repeat or
+  miss one.
+- Times are served to the millisecond, and compared, sorted and paged at the
+  millisecond, so a filter on a served time finds its record. Stored times keep
+  their full precision.
+- `contains`, `startswith` and `endswith` are not supported. RESO's tool treats
+  them as optional.
+
+**Lookups.** StandardStatus, PropertyType, MemberStatus, OfficeStatus, and the
+feed's one media category and resource name are fixed lists and are given as the
+standard values they are. City, county, state and media type are whatever served
+records hold: the Lookup resource lists the values found in served records only.
+A found state is called a standard value only if it is a real postal
+abbreviation; cities, counties and media types are given as local values, with no
+claim that they are standard.
+
+**Who may read.**
+
+- Staff who hold "Manage data access" add a named data consumer and are shown its
+  bearer token once. Only a hash is stored. A token can carry an expiry and can be
+  revoked, and is then refused from the next request.
+- A member's sign-in opens nothing in the feed, and a token opens nothing else.
+- Photos are fetched from the address in `MediaURL` with the same token. That
+  route serves photos only.
+- Every request is logged with the consumer, what was asked, and how many records
+  were returned. A consumer is limited to 1,200 requests a minute.
+
+**What polling does and does not keep current.** Complete synchronization is not
+promised.
+
+- A consumer that polls on `ModificationTimestamp` receives every record whose own
+  stored fields changed. Listings and offices are never deleted.
+- **Days on market** and cumulative days on market are worked out when a response
+  is made. They change with time, with a market-time settings change, and with a
+  relisting-link correction, none of which moves a listing's timestamp. A consumer
+  that keeps them reads its listings again to refresh them.
+- Filtering or sorting on those two figures works them out for every listing in
+  the feed first. That is correct and it is not cheap; on a large MLS it would
+  need its own design.
+- **Photos.** Adding or removing a photo moves its listing's timestamp, so a poll
+  reports the listing, and reading it with `$expand=Media` gives its photos as
+  they now are. A removed photo's own record is simply gone.
+- **Members.** The feed carries agents only. An agent made MLS staff stays in the
+  database and leaves the feed, and nothing reports that. A consumer reconciles by
+  reading the current member keys and treating those it no longer finds as gone.
+- RESO's EntityEvent change feed is not built.
+
+**RESO's certification tool.** RESO publishes the tool it certifies with
+(`@reso-standards/reso-certification`). It was run from outside this repository
+against a local instance on 2026-11-20, version 0.13.1. None of RESO's files are
+in this repository.
+
+| Run | Web API Core 2.1.0 | Data Dictionary 2.1 |
+| --- | --- | --- |
+| First, on the first working feed | 67 passed, 11 failed, 87 skipped | Metadata validation failed with 12 issues; records not reached |
+| Final, on commit `6b92774` | 153 passed, 0 failed, 173 skipped; 18 optional scenarios not supported | 6 steps passed, 1 skipped; 756 records replicated and validated in strict mode; 49 warnings |
+
+The final run tested the feed's code as it stood at commit `6b92774`. The only
+change after it in the pull request that added the feed is this paragraph and the
+table row above.
+
+What the first run found, and what was done:
+
+- A next-page link was returned when the records asked for had all been given (3
+  failures). Fixed.
+- A filter on a served time did not find its own record, because of the
+  millisecond difference above (6 failures). Fixed.
+- Days on market could not be filtered on (2 failures). They now can.
+- `LivingArea` was declared as a whole number and is a decimal in the Data
+  Dictionary. Fixed.
+- Eleven fields that hold one of a list of values did not say so, and there was no
+  Lookup resource. Built.
+
+What the final run does **not** show:
+
+- **It is not a certification**, and its report says it is not eligible for one.
+- **Variations were not checked.** That step sends the feed's field and value names
+  to RESO's service and needs RESO credentials. It was skipped, so whether any
+  local name is too close to a standard one is unknown. A run that skips it cannot
+  be certified.
+- **HTTPS was not tested.** The specification requires HTTPS with TLS 1.2 or later.
+  OSMLS serves plain HTTP and expects a deployment to put TLS in front of it; there
+  is no hosted instance.
+- **The data was synthetic and small**: the seeded demo listings, with placeholder
+  photos added by `pnpm feed:fixtures`. Certification samples up to 100,000 records
+  per resource.
+- **Skipped scenarios are not passes.** The tool records no reason for a skip. By
+  their names, the 173 are scenarios for a data type or expansion a resource does
+  not have (a decimal filter on Member, for example), and for forms the feed does
+  not use: OData enumeration types and multi-valued lookups. The feed has no
+  multi-valued lookup at all, so those are untested, not passed.
+- **The 49 warnings** are suggested maximum lengths and precisions that the
+  metadata does not declare.
+- The first run's Data Dictionary step was made with a 1,000-record limit and
+  without strict mode, to survey everything at once; the final run used neither.
+
+Not included: writing through the API, EntityEvent, feeds with differing field
+sets, file export, imports, webhooks, and a hosted instance.
+
 ### Not yet built
 
 Client accounts and scheduled email to clients, brokerage-wide access,
-self-service password reset, imports and exports, a
-RESO Web API endpoint, fair-housing checks on remarks, and production operations
-(monitoring, backups, recovery). See the charter for the planned order.
+self-service password reset, feeds with differing contents, file export, imports,
+fair-housing checks on remarks, and production operations (monitoring, backups,
+recovery). See the charter for the planned order.
 
 ## Try it
 
@@ -777,7 +919,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, staff permissions, and compliance flags in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, staff permissions, compliance flags, and the data exchange feed in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -823,8 +965,10 @@ Tables and columns are named after RESO Data Dictionary 2.1 resources and fields
 such as `StandardStatus` use the Data Dictionary's display names.
 
 What has and has not been checked: every field name and lookup value OSMLS uses was
-compared with the Data Dictionary 2.1 reference and matches. Data types, and
-whether OSMLS would pass RESO's certification tests, have not been checked. OSMLS
+compared with the Data Dictionary 2.1 reference and matches. The data types of the
+fields the data exchange feed serves were checked by RESO's tool against a local
+instance, within the limits described under "data exchange"; fields outside the feed
+have not been checked, and OSMLS has not been through certification. OSMLS
 offers nine of the ten 2.1 property types; "Commercial Real Estate" is not offered.
 
 Columns that are not in the Data Dictionary start with `Osmls`:
@@ -836,6 +980,8 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `OsmlsMarketTimeSettings` (table) | The market-time settings, one row per saved version |
 | `OsmlsFlag` (table) | Flags raised on listings, and how each was closed |
 | `OsmlsRelistingLink` (table) | The earlier listing compliance staff said a listing continues, or none |
+| `OsmlsDataConsumer` (table) | Outside systems that may read the data exchange feed, each with the hash of its bearer token |
+| `OsmlsDataRequest` (table) | Each request a data consumer made, and how many records it was given |
 | `Member.OsmlsUserId` | Links a member to their sign-in account |
 | `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
 | `Media.OsmlsStoragePath` | Generated file name of the stored photo or document |

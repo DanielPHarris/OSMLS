@@ -87,13 +87,14 @@ export type Role = (typeof ROLES)[number];
  * account, and only an active staff account's capabilities count for anything.
  * They divide administration; they do not change what staff may do to listings.
  */
-export const CAPABILITIES = ["members", "offices", "settings", "compliance", "staff"] as const;
+export const CAPABILITIES = ["members", "offices", "settings", "compliance", "data", "staff"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   members: "Manage members",
   offices: "Manage offices",
   settings: "Manage settings",
   compliance: "Manage compliance",
+  data: "Manage data access",
   staff: "Manage staff",
 };
 

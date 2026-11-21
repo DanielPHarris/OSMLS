@@ -3,6 +3,7 @@
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/app/actions";
+import { createDataConsumer, revokeDataConsumer } from "@/lib/data-exchange";
 import { ListingError } from "@/lib/listings";
 import { changeMemberEmail, createMember, moveMember, sendPasswordLink, setCapabilities, setMemberStatus, setPasswordWithLink, updateMember } from "@/lib/members";
 import { createOffice, setMainOffice, setOfficeStatus, updateOffice } from "@/lib/offices";
@@ -146,6 +147,34 @@ export async function saveSettingsAction(basedOn: number, _previous: FormState, 
     revalidatePath("/", "layout");
   }
   return { ok: true, message: "Settings saved. Every figure is now worked out with them." };
+}
+
+export type DataConsumerFormState = FormState & {
+  /** The new bearer token. It is shown this once and cannot be read back later. */
+  token?: string;
+};
+
+export async function createDataConsumerAction(_previous: DataConsumerFormState, formData: FormData): Promise<DataConsumerFormState> {
+  const current = await getCurrentMember();
+  let made: Awaited<ReturnType<typeof createDataConsumer>>;
+  try {
+    made = await createDataConsumer(current, { name: formData.get("name"), expiresInDays: formData.get("expiresInDays") });
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, token: made.token, message: `${made.consumer.ConsumerName} was added.` };
+}
+
+export async function revokeDataConsumerAction(key: string): Promise<FormState> {
+  const current = await getCurrentMember();
+  try {
+    await revokeDataConsumer(current, key);
+  } catch (err) {
+    return failure(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Revoked. Its token is refused from now on." };
 }
 
 export async function createOfficeAction(_previous: FormState, formData: FormData): Promise<FormState> {

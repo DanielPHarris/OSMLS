@@ -15,7 +15,7 @@ import { Client } from "pg";
 const password = process.env.DEMO_PASSWORD!;
 const ADMIN = "morgan.ellis@osmls.example";
 const COLLEAGUE = "taylor.brooks@osmls.example";
-const ALL = ["Manage members", "Manage offices", "Manage settings", "Manage compliance", "Manage staff"];
+const ALL = ["Manage members", "Manage offices", "Manage settings", "Manage compliance", "Manage data access", "Manage staff"];
 
 let db: Client;
 test.beforeAll(async () => {
