@@ -345,6 +345,11 @@ export default async function ListingPage({
                         <strong>Staff correction:</strong> {entry.OsmlsCorrectionReason}
                       </span>
                     )}
+                    {!entry.OsmlsStaffCorrection && entry.OsmlsCorrectionReason && (
+                      <span className="block text-muted" data-testid="history-origin">
+                        {entry.OsmlsCorrectionReason}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

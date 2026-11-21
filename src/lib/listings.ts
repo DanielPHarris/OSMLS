@@ -14,7 +14,7 @@ import {
 } from "../db/schema";
 import { canViewDocument, canViewShowing, type Viewer } from "./access";
 import { parseListingInput, type FieldErrors, type ListingInput } from "./listing-input";
-import type { StandardStatus } from "./lookups";
+import { STANDARD_STATUSES, type StandardStatus } from "./lookups";
 import { MAX_PHOTO_BYTES, MAX_PHOTOS_PER_LISTING, MAX_SEARCH_RESULTS } from "./rules/local";
 import { currentSettings, getMarketTime, marketFactsSql, type MarketTime } from "./market-time";
 import { isCalendarDate, isOwnKey } from "./validation";
@@ -145,6 +145,105 @@ function validated(raw: Record<string, unknown>): ListingInput {
   return parsed.data;
 }
 
+/** A new listing's fields, checked as the entry form checks them: the one validation, and the rule on how a listing may start. */
+export function validatedNewListing(raw: Record<string, unknown>): ListingInput {
+  const parsed = parseListingInput(raw);
+  const errors: FieldErrors = parsed.ok ? {} : { ...parsed.errors };
+  // Said alongside whatever else is wrong with the fields, so that everything is reported at once.
+  const status = parsed.ok ? parsed.data.StandardStatus : raw.StandardStatus;
+  if ((STANDARD_STATUSES as readonly unknown[]).includes(status) && !INITIAL_STATUSES.includes(status as StandardStatus)) {
+    errors.StandardStatus = `A new listing must start as ${INITIAL_STATUSES.join(" or ")}.`;
+  }
+  if (!parsed.ok || Object.keys(errors).length > 0) throw new ListingError("Some fields need attention.", errors);
+  return parsed.data;
+}
+
+const squashed = (v: string | null | undefined) => (v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * What identifies a property for the purpose of taking turns: its parcel with
+ * the county and state that issued it, and its street address. Coarser than
+ * the matching in src/lib/market-time.ts on purpose (a unit is ignored), so
+ * that anything that could be the same property shares a turn.
+ */
+export function propertyTurnKeys(input: Pick<ListingInput, "ParcelNumber" | "CountyOrParish" | "StateOrProvince" | "StreetNumber" | "StreetName" | "City" | "PostalCode">): string[] {
+  const keys = [`address:${[input.StreetNumber, input.StreetName, input.City, input.StateOrProvince, input.PostalCode].map(squashed).join("|")}`];
+  const parcel = (input.ParcelNumber ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  if (parcel && squashed(input.CountyOrParish) && squashed(input.StateOrProvince)) {
+    keys.push(`parcel:${parcel}|${squashed(input.CountyOrParish)}|${squashed(input.StateOrProvince)}`);
+  }
+  return keys;
+}
+
+/**
+ * Takes the turn for every property named, held to the end of the transaction.
+ * Every creation of a listing takes it first, whether from the entry form or
+ * from an import, so an import that checks for an existing listing of a
+ * property cannot have one arrive between its check and its write. The locks
+ * are taken in one order however they are asked for, so two transactions
+ * cannot each hold what the other wants.
+ */
+export const takePropertyTurns = (tx: Tx, keys: readonly string[]) =>
+  tx.execute(sql`
+    select pg_advisory_xact_lock(1330860364, turn.key)
+    from (select distinct hashtext(k) as key from unnest(${sql.param([...keys])}::text[]) as k order by 1) as turn`);
+
+/** Where a listing that was not typed into the entry form came from. Recorded with its first history entry. */
+export type ListingOrigin = { note: string };
+
+/**
+ * Creates a listing and its first history entry, inside the transaction it is
+ * given. This is the one place a listing is created. The listing agent and the
+ * member who acted are separate: for the entry form they are the same agent;
+ * for an import the agent is the one a row names and the actor is the staff
+ * member importing. The caller has validated the fields with
+ * validatedNewListing and taken the property's turn.
+ */
+export async function createListingIn(
+  tx: Tx,
+  made: {
+    input: ListingInput;
+    listingAgent: Pick<Member, "MemberKey" | "OfficeKey">;
+    actor: Pick<Member, "MemberKey" | "MemberMlsId">;
+    now: Date;
+    /** The calendar date of `now` in the MLS time zone. */
+    today: string;
+    origin?: ListingOrigin;
+  },
+): Promise<Property> {
+  const { input, listingAgent, actor, now, today, origin } = made;
+  if (!listingAgent.OfficeKey) throw new ListingError("Only agents can enter listings.");
+  const [created] = await tx
+    .insert(property)
+    .values({
+      ...input,
+      OriginalListPrice: input.ListPrice,
+      UnparsedAddress: unparsedAddress(input),
+      OnMarketDate: input.StandardStatus === "Active" ? today : null,
+      ListAgentKey: listingAgent.MemberKey,
+      ListOfficeKey: listingAgent.OfficeKey,
+      OriginalEntryTimestamp: now,
+      ModificationTimestamp: now,
+      StatusChangeTimestamp: now,
+    })
+    .returning();
+  await tx.insert(historyTransactional).values({
+    ResourceRecordKey: created.ListingKey,
+    ResourceRecordID: created.ListingId,
+    ClassName: created.PropertyType,
+    FieldName: "StandardStatus",
+    PreviousValue: null,
+    NewValue: created.StandardStatus,
+    ChangeType: "New Listing",
+    ChangedByMemberKey: actor.MemberKey,
+    ChangedByMemberID: actor.MemberMlsId,
+    ModificationTimestamp: now,
+    OsmlsCorrectionReason: origin?.note ?? null,
+  });
+  return created;
+}
+
+/** A listing entered by its agent. */
 export async function createListing(
   actor: Actor,
   raw: Record<string, unknown>,
@@ -153,42 +252,13 @@ export async function createListing(
   const now = when.at ?? new Date();
   if (actor.OsmlsRole !== "agent" || !actor.OfficeKey)
     throw new ListingError("Only agents can enter listings.");
-  const input = validated(raw);
-  if (!INITIAL_STATUSES.includes(input.StandardStatus))
-    throw new ListingError("Some fields need attention.", {
-      StandardStatus: `A new listing must start as ${INITIAL_STATUSES.join(" or ")}.`,
-    });
+  const input = validatedNewListing(raw);
   // Read before the transaction, so the transaction never waits for a second connection.
   const today = await mlsDate(now);
 
   return db.transaction(async (tx) => {
-    const [created] = await tx
-      .insert(property)
-      .values({
-        ...input,
-        OriginalListPrice: input.ListPrice,
-        UnparsedAddress: unparsedAddress(input),
-        OnMarketDate: input.StandardStatus === "Active" ? today : null,
-        ListAgentKey: actor.MemberKey,
-        ListOfficeKey: actor.OfficeKey!,
-        OriginalEntryTimestamp: now,
-        ModificationTimestamp: now,
-        StatusChangeTimestamp: now,
-      })
-      .returning();
-    await tx.insert(historyTransactional).values({
-      ResourceRecordKey: created.ListingKey,
-      ResourceRecordID: created.ListingId,
-      ClassName: created.PropertyType,
-      FieldName: "StandardStatus",
-      PreviousValue: null,
-      NewValue: created.StandardStatus,
-      ChangeType: "New Listing",
-      ChangedByMemberKey: actor.MemberKey,
-      ChangedByMemberID: actor.MemberMlsId,
-      ModificationTimestamp: now,
-    });
-    return created;
+    await takePropertyTurns(tx, propertyTurnKeys(input));
+    return createListingIn(tx, { input, listingAgent: actor, actor, now, today });
   });
 }
 

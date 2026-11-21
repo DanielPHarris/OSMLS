@@ -575,6 +575,7 @@ by individual staff accounts:
 | Manage settings | Change the market-time settings |
 | Manage compliance | See and close flags, and say which earlier listing a listing continues (added with compliance flags, below) |
 | Manage data access | Add and revoke the outside systems that may read the data exchange feed (added with data exchange, below) |
+| Import listings | Load new listings from a file on behalf of agents (added with imports, below) |
 | Manage staff | Add staff accounts, change a role to or from staff, grant and revoke capabilities, and do any member action to a staff account |
 
 - **They divide administration and nothing else.** Every active staff account can
@@ -712,7 +713,7 @@ property.
 The first of three slices of "data exchange". An outside system holding a bearer
 token reads listings, agents, offices and photo records in the RESO Web API's
 OData form, at `/api/reso`. A second, narrower feed and file export are the second
-slice, described after this one. Imports are the third and are not built.
+slice, and importing new listings the third; both are described after this one.
 
 **A distribution policy.** The feed is a new way for listing data to leave OSMLS.
 It is wider than a client copy: it carries listings in every status, parcel and
@@ -937,10 +938,76 @@ Not included: feeds defined by staff, a choice of fields for one consumer, expor
 of collections or single listings, other file formats, scheduled or emailed exports,
 and an exact count of a search that was cut off.
 
+### Added since 0.1: importing new listings
+
+The third of three slices of "data exchange". Staff who hold "Import listings"
+load new listings from a CSV file, at **Imports** in the page header.
+
+**What it cannot do.** OSMLS can support evaluation and new listing entry, but
+this importer cannot migrate an existing MLS's historical records. It cannot bring
+in closed or ended listings, past status or price changes, or earlier dates, and it
+never changes a listing that already exists. Migrating a real MLS's history is
+deferred; it would need rules written against that MLS's own data.
+
+- **Each imported listing is an ordinary new listing.** It is checked by the entry
+  form's own validation, starts as Coming Soon or Active, is dated when the import
+  is committed, and gets the ordinary first history entry. There is one place a
+  listing is created, used by the entry form and by an import alike.
+- **The file.** CSV, UTF-8, a header row, up to 500 rows. Each column is named
+  exactly as the Data Dictionary field it fills: the fields of the entry form, plus
+  `ListAgentMlsId` (the listing agent's member ID) and `SourceListingId` (the
+  listing's identifier where it came from). There is no mapping screen. A column
+  that is not on the list, a column given twice, or a required column missing
+  refuses the whole file, so nothing is silently ignored. Photos, documents and
+  listing numbers are not imported.
+- **The listing agent.** Staff import on behalf of agents. Each row names its
+  agent, who must be an active agent in an active office. The listing is that
+  agent's, and its history records the staff member who imported it, the import,
+  and the row.
+- **Preview, then commit.** Uploading creates nothing. Staff see what each row
+  would do: be created, be refused and why (every problem, not only the first), or
+  be left out as a possible duplicate. A file with refused rows can still be
+  committed.
+- **A commit creates exactly the rows the preview accepted, or nothing.** Every row
+  is judged again when the import is committed, inside one transaction. If a row
+  that was going to be created no longer passes (its agent was suspended, say),
+  nothing is created and the preview is brought up to date. A row the preview did
+  not accept is never created, even if it would pass by then. A preview is
+  committed once.
+- **Duplicates.**
+
+  | Case | What happens |
+  | --- | --- |
+  | The same source identifier twice in one file | Both rows refused |
+  | A source identifier already imported from the same source | Refused, so a file loaded twice creates nothing the second time |
+  | Two rows of one file for the same property | Both left out |
+  | The same property as a listing that has not ended | Left out |
+
+  The source's name is compared without regard to capitals or spacing. "The same
+  property" is the parcel and address matching used for days on market, with its
+  limits: a property typed differently is not recognised.
+- **Imports and hand entry take turns.** Creating a listing first takes a lock on
+  the property it is for, whether from the form or from an import, so a listing
+  entered by hand cannot arrive between an import's check and its write. Nothing
+  else about hand entry changes: an agent can still enter another listing for a
+  property that has one.
+- **What is kept.** The record of an import is permanent: who, when, the source,
+  the file's name and hash, each row's outcome, and the listing each created. What
+  the rows held is not kept once the import is committed. A preview that is not
+  committed can no longer be opened or committed after 24 hours; what it held is
+  deleted by the next run of the scheduled command (`pnpm alerts:send`), so it can
+  remain stored, unreachable, until that runs.
+- **Alerts.** Imported listings are new listings, so they appear in saved-search
+  activity and alerts like any other.
+
+Not included: updating existing listings; migrating history, closed listings or
+earlier dates; importing photos, documents, members or offices; writing through the
+API; scheduled imports; a column-mapping screen; and Excel files.
+
 ### Not yet built
 
 Client accounts and scheduled email to clients, brokerage-wide access,
-self-service password reset, imports,
+self-service password reset, migrating an existing MLS's historical records,
 fair-housing checks on remarks, and production operations (monitoring, backups,
 recovery). See the charter for the planned order.
 
@@ -1009,7 +1076,7 @@ pnpm dev
 ```bash
 pnpm test                                # rules, validation, and database behaviour
 pnpm exec playwright install chromium    # once, to download the test browser
-pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, staff permissions, compliance flags, the data exchange feeds, and file export in a real browser
+pnpm test:e2e                            # the workflow, map search, access control, market research, saved work, sharing, administration, staff permissions, compliance flags, the data exchange feeds, file export, and imports in a real browser
 pnpm lint && pnpm typecheck
 ```
 
@@ -1073,6 +1140,7 @@ Columns that are not in the Data Dictionary start with `Osmls`:
 | `OsmlsDataConsumer` (table) | Outside systems that may read a data exchange feed, each with its feed and the hash of its bearer token |
 | `OsmlsDataRequest` (table) | Each request a data consumer made, the feed that answered, and how many records it was given |
 | `OsmlsExport` (table) | Each file a member exported from a search: who, which kind, the search, and how many listings |
+| `OsmlsImport`, `OsmlsImportRow` (tables) | Each file of new listings staff uploaded, each row's outcome, and the listing it created |
 | `Member.OsmlsUserId` | Links a member to their sign-in account |
 | `Property.OsmlsLocalFields` | Reserved for an MLS's own fields; not used yet |
 | `Media.OsmlsStoragePath` | Generated file name of the stored photo or document |

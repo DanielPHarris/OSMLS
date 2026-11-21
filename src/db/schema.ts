@@ -612,3 +612,63 @@ export const exportLog = pgTable(
   },
   (t) => [check("OsmlsExport_Kind_valid", sql.raw(`"Kind" IN ('agent', 'client')`)), index("OsmlsExport_member").on(t.MemberKey, t.ExportTimestamp)],
 );
+
+/*
+ * A file of new listings that staff uploaded. It is a preview until it is
+ * committed, and creates no listing until then. The record of the import is
+ * kept; the contents of its rows are not, once it is committed or expires.
+ */
+export const listingImport = pgTable(
+  "OsmlsImport",
+  {
+    ImportKey: uuid().primaryKey().defaultRandom(),
+    // The source system as staff typed it, and as it is compared: trimmed, single-spaced, lower case.
+    SourceName: text().notNull(),
+    Source: text().notNull(),
+    FileName: text().notNull(),
+    FileHash: text().notNull(),
+    State: text().notNull().default("Previewed"),
+    CreatedByMemberKey: uuid()
+      .notNull()
+      .references(() => member.MemberKey),
+    OriginalEntryTimestamp: timestamptz().notNull().defaultNow(),
+    CommittedByMemberKey: uuid().references(() => member.MemberKey),
+    CommittedTimestamp: timestamptz(),
+  },
+  (t) => [
+    check("OsmlsImport_State_valid", sql.raw(`"State" IN ('Previewed', 'Committed')`)),
+    check("OsmlsImport_committed_by_someone", sql`(${t.State} = 'Committed') = (${t.CommittedByMemberKey} IS NOT NULL) AND (${t.State} = 'Committed') = (${t.CommittedTimestamp} IS NOT NULL)`),
+  ],
+);
+
+export const listingImportRow = pgTable(
+  "OsmlsImportRow",
+  {
+    ImportKey: uuid()
+      .notNull()
+      .references(() => listingImport.ImportKey, { onDelete: "cascade" }),
+    // The row's place in the file, counting the first row after the header as 1.
+    RowNumber: integer().notNull(),
+    Source: text().notNull(),
+    SourceListingId: text().notNull(),
+    // Accepted: a commit would create it. Refused: it is not valid. Duplicate: left out as a possible duplicate.
+    Outcome: text().notNull(),
+    Reasons: jsonb().$type<string[]>().notNull(),
+    // What the row held, kept only while the import is a preview.
+    Content: jsonb().$type<Record<string, string>>(),
+    // Why the row could not be read as the header describes, if it could not. It is part of what the
+    // file said, kept with the row so that judging the row again can never lose it.
+    StructuralError: text(),
+    // The listing a commit created from this row.
+    ListingKey: uuid().references(() => property.ListingKey),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ImportKey, t.RowNumber] }),
+    check("OsmlsImportRow_Outcome_valid", sql.raw(`"Outcome" IN ('Accepted', 'Refused', 'Duplicate')`)),
+    // A listing from a source is imported once, whatever a check may have missed.
+    uniqueIndex("OsmlsImportRow_source_once").on(t.Source, t.SourceListingId).where(sql`${t.ListingKey} IS NOT NULL`),
+  ],
+);
+export type ListingImport = typeof listingImport.$inferSelect;
+export type ListingImportRow = typeof listingImportRow.$inferSelect;
+

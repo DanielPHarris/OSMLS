@@ -1,0 +1,2803 @@
+{
+  "id": "ad5cb71f-b142-4b68-86dd-9ee5c89e6383",
+  "prevId": "66e38abf-e63a-4a71-9f22-92569a2602a6",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.account": {
+      "name": "account",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "accountId": {
+          "name": "accountId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "providerId": {
+          "name": "providerId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "accessToken": {
+          "name": "accessToken",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refreshToken": {
+          "name": "refreshToken",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idToken": {
+          "name": "idToken",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accessTokenExpiresAt": {
+          "name": "accessTokenExpiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refreshTokenExpiresAt": {
+          "name": "refreshTokenExpiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "account_userId_user_id_fk": {
+          "name": "account_userId_user_id_fk",
+          "tableFrom": "account",
+          "tableTo": "user",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.OsmlsCollection": {
+      "name": "OsmlsCollection",
+      "schema": "",
+      "columns": {
+        "CollectionKey": {
+          "name": "CollectionKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "MemberKey": {
+          "name": "MemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "CollectionName": {
+          "name": "CollectionName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OriginalEntryTimestamp": {
+          "name": "OriginalEntryTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "OsmlsCollection_member_name_unique": {
+          "name": "OsmlsCollection_member_name_unique",
+          "columns": [
+            {
+              "expression": "MemberKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"CollectionName\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "OsmlsCollection_MemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsCollection_MemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsCollection",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "MemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsCollection_name_not_blank": {
+          "name": "OsmlsCollection_name_not_blank",
+          "value": "\"OsmlsCollection\".\"CollectionName\" IS NOT NULL AND length(trim(\"OsmlsCollection\".\"CollectionName\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.OsmlsCollectionListing": {
+      "name": "OsmlsCollectionListing",
+      "schema": "",
+      "columns": {
+        "CollectionKey": {
+          "name": "CollectionKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ListingKey": {
+          "name": "ListingKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "AddedTimestamp": {
+          "name": "AddedTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "AddedSequence": {
+          "name": "AddedSequence",
+          "type": "bigserial",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "OsmlsCollectionListing_CollectionKey_OsmlsCollection_CollectionKey_fk": {
+          "name": "OsmlsCollectionListing_CollectionKey_OsmlsCollection_CollectionKey_fk",
+          "tableFrom": "OsmlsCollectionListing",
+          "tableTo": "OsmlsCollection",
+          "columnsFrom": [
+            "CollectionKey"
+          ],
+          "columnsTo": [
+            "CollectionKey"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "OsmlsCollectionListing_ListingKey_Property_ListingKey_fk": {
+          "name": "OsmlsCollectionListing_ListingKey_Property_ListingKey_fk",
+          "tableFrom": "OsmlsCollectionListing",
+          "tableTo": "Property",
+          "columnsFrom": [
+            "ListingKey"
+          ],
+          "columnsTo": [
+            "ListingKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "OsmlsCollectionListing_CollectionKey_ListingKey_pk": {
+          "name": "OsmlsCollectionListing_CollectionKey_ListingKey_pk",
+          "columns": [
+            "CollectionKey",
+            "ListingKey"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.OsmlsDataConsumer": {
+      "name": "OsmlsDataConsumer",
+      "schema": "",
+      "columns": {
+        "ConsumerKey": {
+          "name": "ConsumerKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ConsumerName": {
+          "name": "ConsumerName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Feed": {
+          "name": "Feed",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'full'"
+        },
+        "OsmlsTokenHash": {
+          "name": "OsmlsTokenHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "CreatedByMemberKey": {
+          "name": "CreatedByMemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OriginalEntryTimestamp": {
+          "name": "OriginalEntryTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ExpirationTimestamp": {
+          "name": "ExpirationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "RevokedTimestamp": {
+          "name": "RevokedTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "RevokedByMemberKey": {
+          "name": "RevokedByMemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "OsmlsDataConsumer_CreatedByMemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsDataConsumer_CreatedByMemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsDataConsumer",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "CreatedByMemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "OsmlsDataConsumer_RevokedByMemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsDataConsumer_RevokedByMemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsDataConsumer",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "RevokedByMemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "OsmlsDataConsumer_OsmlsTokenHash_unique": {
+          "name": "OsmlsDataConsumer_OsmlsTokenHash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "OsmlsTokenHash"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsDataConsumer_name_present": {
+          "name": "OsmlsDataConsumer_name_present",
+          "value": "length(trim(\"OsmlsDataConsumer\".\"ConsumerName\")) > 0"
+        },
+        "OsmlsDataConsumer_Feed_valid": {
+          "name": "OsmlsDataConsumer_Feed_valid",
+          "value": "\"Feed\" IN ('full', 'public')"
+        },
+        "OsmlsDataConsumer_revoked_by_someone": {
+          "name": "OsmlsDataConsumer_revoked_by_someone",
+          "value": "(\"OsmlsDataConsumer\".\"RevokedTimestamp\" IS NULL) = (\"OsmlsDataConsumer\".\"RevokedByMemberKey\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.OsmlsDataRequest": {
+      "name": "OsmlsDataRequest",
+      "schema": "",
+      "columns": {
+        "RequestKey": {
+          "name": "RequestKey",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "ConsumerKey": {
+          "name": "ConsumerKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "RequestTimestamp": {
+          "name": "RequestTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "Feed": {
+          "name": "Feed",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'full'"
+        },
+        "ResourceName": {
+          "name": "ResourceName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Query": {
+          "name": "Query",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Status": {
+          "name": "Status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "RecordCount": {
+          "name": "RecordCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "OsmlsDataRequest_consumer": {
+          "name": "OsmlsDataRequest_consumer",
+          "columns": [
+            {
+              "expression": "ConsumerKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "RequestTimestamp",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "OsmlsDataRequest_ConsumerKey_OsmlsDataConsumer_ConsumerKey_fk": {
+          "name": "OsmlsDataRequest_ConsumerKey_OsmlsDataConsumer_ConsumerKey_fk",
+          "tableFrom": "OsmlsDataRequest",
+          "tableTo": "OsmlsDataConsumer",
+          "columnsFrom": [
+            "ConsumerKey"
+          ],
+          "columnsTo": [
+            "ConsumerKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.OsmlsExport": {
+      "name": "OsmlsExport",
+      "schema": "",
+      "columns": {
+        "ExportKey": {
+          "name": "ExportKey",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "MemberKey": {
+          "name": "MemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ExportTimestamp": {
+          "name": "ExportTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "Kind": {
+          "name": "Kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Criteria": {
+          "name": "Criteria",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ListingCount": {
+          "name": "ListingCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OmittedForStatus": {
+          "name": "OmittedForStatus",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "SearchCutOff": {
+          "name": "SearchCutOff",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "OsmlsExport_member": {
+          "name": "OsmlsExport_member",
+          "columns": [
+            {
+              "expression": "MemberKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ExportTimestamp",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "OsmlsExport_MemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsExport_MemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsExport",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "MemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsExport_Kind_valid": {
+          "name": "OsmlsExport_Kind_valid",
+          "value": "\"Kind\" IN ('agent', 'client')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.OsmlsFlag": {
+      "name": "OsmlsFlag",
+      "schema": "",
+      "columns": {
+        "FlagKey": {
+          "name": "FlagKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ListingKey": {
+          "name": "ListingKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "RaisedByMemberKey": {
+          "name": "RaisedByMemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Category": {
+          "name": "Category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Description": {
+          "name": "Description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "State": {
+          "name": "State",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Open'"
+        },
+        "RaisedTimestamp": {
+          "name": "RaisedTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "RaisedDate": {
+          "name": "RaisedDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ClosedByMemberKey": {
+          "name": "ClosedByMemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ClosedTimestamp": {
+          "name": "ClosedTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ClosingNote": {
+          "name": "ClosingNote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "OsmlsFlag_one_open": {
+          "name": "OsmlsFlag_one_open",
+          "columns": [
+            {
+              "expression": "RaisedByMemberKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ListingKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "Category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"OsmlsFlag\".\"State\" = 'Open'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "OsmlsFlag_listing": {
+          "name": "OsmlsFlag_listing",
+          "columns": [
+            {
+              "expression": "ListingKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "OsmlsFlag_raised_by_date": {
+          "name": "OsmlsFlag_raised_by_date",
+          "columns": [
+            {
+              "expression": "RaisedByMemberKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "RaisedDate",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "OsmlsFlag_ListingKey_Property_ListingKey_fk": {
+          "name": "OsmlsFlag_ListingKey_Property_ListingKey_fk",
+          "tableFrom": "OsmlsFlag",
+          "tableTo": "Property",
+          "columnsFrom": [
+            "ListingKey"
+          ],
+          "columnsTo": [
+            "ListingKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "OsmlsFlag_RaisedByMemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsFlag_RaisedByMemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsFlag",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "RaisedByMemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "OsmlsFlag_ClosedByMemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsFlag_ClosedByMemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsFlag",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "ClosedByMemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsFlag_Category_valid": {
+          "name": "OsmlsFlag_Category_valid",
+          "value": "\"Category\" IN ('Incorrect information', 'Photos', 'Remarks', 'Status not updated', 'Duplicate listing', 'Market time or relisting link', 'Other')"
+        },
+        "OsmlsFlag_State_valid": {
+          "name": "OsmlsFlag_State_valid",
+          "value": "\"State\" IN ('Open', 'Resolved', 'Dismissed')"
+        },
+        "OsmlsFlag_Description_present": {
+          "name": "OsmlsFlag_Description_present",
+          "value": "length(trim(\"OsmlsFlag\".\"Description\")) > 0"
+        },
+        "OsmlsFlag_closed_with_details": {
+          "name": "OsmlsFlag_closed_with_details",
+          "value": "(\"OsmlsFlag\".\"State\" = 'Open') = (\"OsmlsFlag\".\"ClosedByMemberKey\" IS NULL) AND (\"OsmlsFlag\".\"State\" = 'Open') = (\"OsmlsFlag\".\"ClosedTimestamp\" IS NULL) AND (\"OsmlsFlag\".\"State\" = 'Open' OR length(trim(\"OsmlsFlag\".\"ClosingNote\")) > 0)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.HistoryTransactional": {
+      "name": "HistoryTransactional",
+      "schema": "",
+      "columns": {
+        "HistoryTransactionalKey": {
+          "name": "HistoryTransactionalKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ResourceName": {
+          "name": "ResourceName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Property'"
+        },
+        "ResourceRecordKey": {
+          "name": "ResourceRecordKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ResourceRecordID": {
+          "name": "ResourceRecordID",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ClassName": {
+          "name": "ClassName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "FieldName": {
+          "name": "FieldName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "PreviousValue": {
+          "name": "PreviousValue",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "NewValue": {
+          "name": "NewValue",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ChangeType": {
+          "name": "ChangeType",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ChangedByMemberKey": {
+          "name": "ChangedByMemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ChangedByMemberID": {
+          "name": "ChangedByMemberID",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "OsmlsSequence": {
+          "name": "OsmlsSequence",
+          "type": "bigserial",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OsmlsStaffCorrection": {
+          "name": "OsmlsStaffCorrection",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "OsmlsCorrectionReason": {
+          "name": "OsmlsCorrectionReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "HistoryTransactional_record_idx": {
+          "name": "HistoryTransactional_record_idx",
+          "columns": [
+            {
+              "expression": "ResourceRecordKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ModificationTimestamp",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "HistoryTransactional_sequence_idx": {
+          "name": "HistoryTransactional_sequence_idx",
+          "columns": [
+            {
+              "expression": "OsmlsSequence",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "HistoryTransactional_ChangedByMemberKey_Member_MemberKey_fk": {
+          "name": "HistoryTransactional_ChangedByMemberKey_Member_MemberKey_fk",
+          "tableFrom": "HistoryTransactional",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "ChangedByMemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "HistoryTransactional_correction_has_reason": {
+          "name": "HistoryTransactional_correction_has_reason",
+          "value": "NOT \"HistoryTransactional\".\"OsmlsStaffCorrection\" OR length(trim(\"HistoryTransactional\".\"OsmlsCorrectionReason\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.OsmlsImport": {
+      "name": "OsmlsImport",
+      "schema": "",
+      "columns": {
+        "ImportKey": {
+          "name": "ImportKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "SourceName": {
+          "name": "SourceName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Source": {
+          "name": "Source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "FileName": {
+          "name": "FileName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "FileHash": {
+          "name": "FileHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "State": {
+          "name": "State",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Previewed'"
+        },
+        "CreatedByMemberKey": {
+          "name": "CreatedByMemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OriginalEntryTimestamp": {
+          "name": "OriginalEntryTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "CommittedByMemberKey": {
+          "name": "CommittedByMemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "CommittedTimestamp": {
+          "name": "CommittedTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "OsmlsImport_CreatedByMemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsImport_CreatedByMemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsImport",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "CreatedByMemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "OsmlsImport_CommittedByMemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsImport_CommittedByMemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsImport",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "CommittedByMemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsImport_State_valid": {
+          "name": "OsmlsImport_State_valid",
+          "value": "\"State\" IN ('Previewed', 'Committed')"
+        },
+        "OsmlsImport_committed_by_someone": {
+          "name": "OsmlsImport_committed_by_someone",
+          "value": "(\"OsmlsImport\".\"State\" = 'Committed') = (\"OsmlsImport\".\"CommittedByMemberKey\" IS NOT NULL) AND (\"OsmlsImport\".\"State\" = 'Committed') = (\"OsmlsImport\".\"CommittedTimestamp\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.OsmlsImportRow": {
+      "name": "OsmlsImportRow",
+      "schema": "",
+      "columns": {
+        "ImportKey": {
+          "name": "ImportKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "RowNumber": {
+          "name": "RowNumber",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Source": {
+          "name": "Source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "SourceListingId": {
+          "name": "SourceListingId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Outcome": {
+          "name": "Outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Reasons": {
+          "name": "Reasons",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Content": {
+          "name": "Content",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "StructuralError": {
+          "name": "StructuralError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ListingKey": {
+          "name": "ListingKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "OsmlsImportRow_source_once": {
+          "name": "OsmlsImportRow_source_once",
+          "columns": [
+            {
+              "expression": "Source",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "SourceListingId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"OsmlsImportRow\".\"ListingKey\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "OsmlsImportRow_ImportKey_OsmlsImport_ImportKey_fk": {
+          "name": "OsmlsImportRow_ImportKey_OsmlsImport_ImportKey_fk",
+          "tableFrom": "OsmlsImportRow",
+          "tableTo": "OsmlsImport",
+          "columnsFrom": [
+            "ImportKey"
+          ],
+          "columnsTo": [
+            "ImportKey"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "OsmlsImportRow_ListingKey_Property_ListingKey_fk": {
+          "name": "OsmlsImportRow_ListingKey_Property_ListingKey_fk",
+          "tableFrom": "OsmlsImportRow",
+          "tableTo": "Property",
+          "columnsFrom": [
+            "ListingKey"
+          ],
+          "columnsTo": [
+            "ListingKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "OsmlsImportRow_ImportKey_RowNumber_pk": {
+          "name": "OsmlsImportRow_ImportKey_RowNumber_pk",
+          "columns": [
+            "ImportKey",
+            "RowNumber"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsImportRow_Outcome_valid": {
+          "name": "OsmlsImportRow_Outcome_valid",
+          "value": "\"Outcome\" IN ('Accepted', 'Refused', 'Duplicate')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.OsmlsMailBlock": {
+      "name": "OsmlsMailBlock",
+      "schema": "",
+      "columns": {
+        "OsmlsAddressHash": {
+          "name": "OsmlsAddressHash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "OriginalEntryTimestamp": {
+          "name": "OriginalEntryTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.OsmlsMarketTimeSettings": {
+      "name": "OsmlsMarketTimeSettings",
+      "schema": "",
+      "columns": {
+        "Version": {
+          "name": "Version",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "AccumulatingStatuses": {
+          "name": "AccumulatingStatuses",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "RelistingGapDays": {
+          "name": "RelistingGapDays",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "BrokerageChangeResets": {
+          "name": "BrokerageChangeResets",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "AddressFallback": {
+          "name": "AddressFallback",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "GapEndpoint": {
+          "name": "GapEndpoint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "TimeZone": {
+          "name": "TimeZone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ChangedByMemberKey": {
+          "name": "ChangedByMemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Reason": {
+          "name": "Reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "OsmlsMarketTimeSettings_ChangedByMemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsMarketTimeSettings_ChangedByMemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsMarketTimeSettings",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "ChangedByMemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsMarketTimeSettings_GapEndpoint_valid": {
+          "name": "OsmlsMarketTimeSettings_GapEndpoint_valid",
+          "value": "\"GapEndpoint\" IN ('entered', 'onMarket')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.Media": {
+      "name": "Media",
+      "schema": "",
+      "columns": {
+        "MediaKey": {
+          "name": "MediaKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ResourceName": {
+          "name": "ResourceName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Property'"
+        },
+        "ResourceRecordKey": {
+          "name": "ResourceRecordKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "MediaCategory": {
+          "name": "MediaCategory",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Photo'"
+        },
+        "MediaType": {
+          "name": "MediaType",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "Order": {
+          "name": "Order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ShortDescription": {
+          "name": "ShortDescription",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Permission": {
+          "name": "Permission",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsStoragePath": {
+          "name": "OsmlsStoragePath",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OsmlsFileSize": {
+          "name": "OsmlsFileSize",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsFileHash": {
+          "name": "OsmlsFileHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "Media_ResourceRecordKey_idx": {
+          "name": "Media_ResourceRecordKey_idx",
+          "columns": [
+            {
+              "expression": "ResourceRecordKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "Media_ResourceRecordKey_Property_ListingKey_fk": {
+          "name": "Media_ResourceRecordKey_Property_ListingKey_fk",
+          "tableFrom": "Media",
+          "tableTo": "Property",
+          "columnsFrom": [
+            "ResourceRecordKey"
+          ],
+          "columnsTo": [
+            "ListingKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "Media_MediaCategory_valid": {
+          "name": "Media_MediaCategory_valid",
+          "value": "\"MediaCategory\" IN ('Photo', 'Document')"
+        },
+        "Media_Permission_valid": {
+          "name": "Media_Permission_valid",
+          "value": "\"Permission\" IN ('Agent Only', 'Office Only', 'Private')"
+        },
+        "Media_document_is_complete": {
+          "name": "Media_document_is_complete",
+          "value": "\"Media\".\"MediaCategory\" <> 'Document' OR (\"Media\".\"Permission\" IS NOT NULL AND \"Media\".\"ShortDescription\" IS NOT NULL AND length(trim(\"Media\".\"ShortDescription\")) > 0 AND \"Media\".\"OsmlsFileHash\" IS NOT NULL AND \"Media\".\"OsmlsFileSize\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.Member": {
+      "name": "Member",
+      "schema": "",
+      "columns": {
+        "MemberKey": {
+          "name": "MemberKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "MemberMlsId": {
+          "name": "MemberMlsId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "MemberFirstName": {
+          "name": "MemberFirstName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "MemberLastName": {
+          "name": "MemberLastName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "MemberFullName": {
+          "name": "MemberFullName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "MemberEmail": {
+          "name": "MemberEmail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "MemberDirectPhone": {
+          "name": "MemberDirectPhone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "MemberStatus": {
+          "name": "MemberStatus",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Active'"
+        },
+        "OfficeKey": {
+          "name": "OfficeKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsRole": {
+          "name": "OsmlsRole",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OsmlsCapabilities": {
+          "name": "OsmlsCapabilities",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "OsmlsUserId": {
+          "name": "OsmlsUserId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "Member_OfficeKey_Office_OfficeKey_fk": {
+          "name": "Member_OfficeKey_Office_OfficeKey_fk",
+          "tableFrom": "Member",
+          "tableTo": "Office",
+          "columnsFrom": [
+            "OfficeKey"
+          ],
+          "columnsTo": [
+            "OfficeKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "Member_OsmlsUserId_user_id_fk": {
+          "name": "Member_OsmlsUserId_user_id_fk",
+          "tableFrom": "Member",
+          "tableTo": "user",
+          "columnsFrom": [
+            "OsmlsUserId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "Member_MemberMlsId_unique": {
+          "name": "Member_MemberMlsId_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "MemberMlsId"
+          ]
+        },
+        "Member_MemberEmail_unique": {
+          "name": "Member_MemberEmail_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "MemberEmail"
+          ]
+        },
+        "Member_OsmlsUserId_unique": {
+          "name": "Member_OsmlsUserId_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "OsmlsUserId"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "Member_MemberStatus_valid": {
+          "name": "Member_MemberStatus_valid",
+          "value": "\"MemberStatus\" IN ('Active', 'Inactive')"
+        },
+        "Member_OsmlsRole_valid": {
+          "name": "Member_OsmlsRole_valid",
+          "value": "\"OsmlsRole\" IN ('agent', 'staff')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.Office": {
+      "name": "Office",
+      "schema": "",
+      "columns": {
+        "OfficeKey": {
+          "name": "OfficeKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "OfficeMlsId": {
+          "name": "OfficeMlsId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OfficeName": {
+          "name": "OfficeName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "MainOfficeKey": {
+          "name": "MainOfficeKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OfficeStatus": {
+          "name": "OfficeStatus",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Active'"
+        },
+        "OfficePhone": {
+          "name": "OfficePhone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OfficeCity": {
+          "name": "OfficeCity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OfficeStateOrProvince": {
+          "name": "OfficeStateOrProvince",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "Office_MainOfficeKey_Office_OfficeKey_fk": {
+          "name": "Office_MainOfficeKey_Office_OfficeKey_fk",
+          "tableFrom": "Office",
+          "tableTo": "Office",
+          "columnsFrom": [
+            "MainOfficeKey"
+          ],
+          "columnsTo": [
+            "OfficeKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "Office_OfficeMlsId_unique": {
+          "name": "Office_OfficeMlsId_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "OfficeMlsId"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "Office_OfficeStatus_valid": {
+          "name": "Office_OfficeStatus_valid",
+          "value": "\"OfficeStatus\" IN ('Active', 'Inactive')"
+        },
+        "Office_not_its_own_main": {
+          "name": "Office_not_its_own_main",
+          "value": "\"Office\".\"MainOfficeKey\" IS NULL OR \"Office\".\"MainOfficeKey\" <> \"Office\".\"OfficeKey\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.Property": {
+      "name": "Property",
+      "schema": "",
+      "columns": {
+        "ListingKey": {
+          "name": "ListingKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "ListingId": {
+          "name": "ListingId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'OS' || nextval('listing_id_seq')::text"
+        },
+        "StandardStatus": {
+          "name": "StandardStatus",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "PropertyType": {
+          "name": "PropertyType",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ListPrice": {
+          "name": "ListPrice",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OriginalListPrice": {
+          "name": "OriginalListPrice",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ClosePrice": {
+          "name": "ClosePrice",
+          "type": "numeric(14, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "CloseDate": {
+          "name": "CloseDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ListingContractDate": {
+          "name": "ListingContractDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OnMarketDate": {
+          "name": "OnMarketDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "StreetNumber": {
+          "name": "StreetNumber",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "StreetName": {
+          "name": "StreetName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "UnitNumber": {
+          "name": "UnitNumber",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "City": {
+          "name": "City",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "StateOrProvince": {
+          "name": "StateOrProvince",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "PostalCode": {
+          "name": "PostalCode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "UnparsedAddress": {
+          "name": "UnparsedAddress",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "CountyOrParish": {
+          "name": "CountyOrParish",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ParcelNumber": {
+          "name": "ParcelNumber",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Latitude": {
+          "name": "Latitude",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "Longitude": {
+          "name": "Longitude",
+          "type": "numeric(9, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "BedroomsTotal": {
+          "name": "BedroomsTotal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "BathroomsTotalInteger": {
+          "name": "BathroomsTotalInteger",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "LivingArea": {
+          "name": "LivingArea",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "LotSizeAcres": {
+          "name": "LotSizeAcres",
+          "type": "numeric(10, 3)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "YearBuilt": {
+          "name": "YearBuilt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "PublicRemarks": {
+          "name": "PublicRemarks",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ShowingInstructions": {
+          "name": "ShowingInstructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ShowingRequirements": {
+          "name": "ShowingRequirements",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "ShowingContactName": {
+          "name": "ShowingContactName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ShowingContactPhone": {
+          "name": "ShowingContactPhone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ShowingContactType": {
+          "name": "ShowingContactType",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "LockBoxType": {
+          "name": "LockBoxType",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "LockBoxLocation": {
+          "name": "LockBoxLocation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ListAgentKey": {
+          "name": "ListAgentKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ListOfficeKey": {
+          "name": "ListOfficeKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OsmlsLocalFields": {
+          "name": "OsmlsLocalFields",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "OriginalEntryTimestamp": {
+          "name": "OriginalEntryTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "StatusChangeTimestamp": {
+          "name": "StatusChangeTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "PriceChangeTimestamp": {
+          "name": "PriceChangeTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "Property_location_idx": {
+          "name": "Property_location_idx",
+          "columns": [
+            {
+              "expression": "Latitude",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "Longitude",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "Property_ParcelNumber_idx": {
+          "name": "Property_ParcelNumber_idx",
+          "columns": [
+            {
+              "expression": "ParcelNumber",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "Property_CloseDate_idx": {
+          "name": "Property_CloseDate_idx",
+          "columns": [
+            {
+              "expression": "CloseDate",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "Property_StandardStatus_idx": {
+          "name": "Property_StandardStatus_idx",
+          "columns": [
+            {
+              "expression": "StandardStatus",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "Property_City_idx": {
+          "name": "Property_City_idx",
+          "columns": [
+            {
+              "expression": "City",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "Property_PostalCode_idx": {
+          "name": "Property_PostalCode_idx",
+          "columns": [
+            {
+              "expression": "PostalCode",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "Property_ListPrice_idx": {
+          "name": "Property_ListPrice_idx",
+          "columns": [
+            {
+              "expression": "ListPrice",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "Property_ListAgentKey_idx": {
+          "name": "Property_ListAgentKey_idx",
+          "columns": [
+            {
+              "expression": "ListAgentKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "Property_ListAgentKey_Member_MemberKey_fk": {
+          "name": "Property_ListAgentKey_Member_MemberKey_fk",
+          "tableFrom": "Property",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "ListAgentKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "Property_ListOfficeKey_Office_OfficeKey_fk": {
+          "name": "Property_ListOfficeKey_Office_OfficeKey_fk",
+          "tableFrom": "Property",
+          "tableTo": "Office",
+          "columnsFrom": [
+            "ListOfficeKey"
+          ],
+          "columnsTo": [
+            "OfficeKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "Property_ListingId_unique": {
+          "name": "Property_ListingId_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "ListingId"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "Property_StandardStatus_valid": {
+          "name": "Property_StandardStatus_valid",
+          "value": "\"StandardStatus\" IN ('Active', 'Active Under Contract', 'Canceled', 'Closed', 'Coming Soon', 'Expired', 'Hold', 'Pending', 'Withdrawn')"
+        },
+        "Property_PropertyType_valid": {
+          "name": "Property_PropertyType_valid",
+          "value": "\"PropertyType\" IN ('Residential', 'Residential Lease', 'Residential Income', 'Land', 'Farm', 'Manufactured In Park', 'Commercial Sale', 'Commercial Lease', 'Business Opportunity')"
+        },
+        "Property_ListPrice_positive": {
+          "name": "Property_ListPrice_positive",
+          "value": "\"Property\".\"ListPrice\" > 0"
+        },
+        "Property_BedroomsTotal_nonnegative": {
+          "name": "Property_BedroomsTotal_nonnegative",
+          "value": "\"Property\".\"BedroomsTotal\" >= 0"
+        },
+        "Property_BathroomsTotalInteger_nonnegative": {
+          "name": "Property_BathroomsTotalInteger_nonnegative",
+          "value": "\"Property\".\"BathroomsTotalInteger\" >= 0"
+        },
+        "Property_Closed_has_price_and_date": {
+          "name": "Property_Closed_has_price_and_date",
+          "value": "\"Property\".\"StandardStatus\" <> 'Closed' OR (\"Property\".\"ClosePrice\" IS NOT NULL AND \"Property\".\"CloseDate\" IS NOT NULL)"
+        },
+        "Property_Latitude_range": {
+          "name": "Property_Latitude_range",
+          "value": "\"Property\".\"Latitude\" BETWEEN -90 AND 90"
+        },
+        "Property_Longitude_range": {
+          "name": "Property_Longitude_range",
+          "value": "\"Property\".\"Longitude\" BETWEEN -180 AND 180"
+        },
+        "Property_location_both_or_neither": {
+          "name": "Property_location_both_or_neither",
+          "value": "(\"Property\".\"Latitude\" IS NULL) = (\"Property\".\"Longitude\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.OsmlsRelistingLink": {
+      "name": "OsmlsRelistingLink",
+      "schema": "",
+      "columns": {
+        "ListingKey": {
+          "name": "ListingKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "PredecessorKey": {
+          "name": "PredecessorKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "OsmlsRelistingLink_ListingKey_Property_ListingKey_fk": {
+          "name": "OsmlsRelistingLink_ListingKey_Property_ListingKey_fk",
+          "tableFrom": "OsmlsRelistingLink",
+          "tableTo": "Property",
+          "columnsFrom": [
+            "ListingKey"
+          ],
+          "columnsTo": [
+            "ListingKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "OsmlsRelistingLink_PredecessorKey_Property_ListingKey_fk": {
+          "name": "OsmlsRelistingLink_PredecessorKey_Property_ListingKey_fk",
+          "tableFrom": "OsmlsRelistingLink",
+          "tableTo": "Property",
+          "columnsFrom": [
+            "PredecessorKey"
+          ],
+          "columnsTo": [
+            "ListingKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsRelistingLink_not_itself": {
+          "name": "OsmlsRelistingLink_not_itself",
+          "value": "\"OsmlsRelistingLink\".\"PredecessorKey\" IS NULL OR \"OsmlsRelistingLink\".\"PredecessorKey\" <> \"OsmlsRelistingLink\".\"ListingKey\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.SavedSearch": {
+      "name": "SavedSearch",
+      "schema": "",
+      "columns": {
+        "SavedSearchKey": {
+          "name": "SavedSearchKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "MemberKey": {
+          "name": "MemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "SavedSearchName": {
+          "name": "SavedSearchName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ResourceName": {
+          "name": "ResourceName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Property'"
+        },
+        "OsmlsCriteria": {
+          "name": "OsmlsCriteria",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "SearchQueryHumanReadable": {
+          "name": "SearchQueryHumanReadable",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OsmlsActivitySeenThrough": {
+          "name": "OsmlsActivitySeenThrough",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "OsmlsActivitySeenAt": {
+          "name": "OsmlsActivitySeenAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "OsmlsAlertFrequency": {
+          "name": "OsmlsAlertFrequency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsAlertSentThrough": {
+          "name": "OsmlsAlertSentThrough",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "OsmlsAlertLastSentAt": {
+          "name": "OsmlsAlertLastSentAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsAlertAttempts": {
+          "name": "OsmlsAlertAttempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "OsmlsAlertFailures": {
+          "name": "OsmlsAlertFailures",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "OsmlsAlertPaused": {
+          "name": "OsmlsAlertPaused",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsAlertGeneration": {
+          "name": "OsmlsAlertGeneration",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "OriginalEntryTimestamp": {
+          "name": "OriginalEntryTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ModificationTimestamp": {
+          "name": "ModificationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "SavedSearch_member_name_unique": {
+          "name": "SavedSearch_member_name_unique",
+          "columns": [
+            {
+              "expression": "MemberKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"SavedSearchName\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "SavedSearch_MemberKey_Member_MemberKey_fk": {
+          "name": "SavedSearch_MemberKey_Member_MemberKey_fk",
+          "tableFrom": "SavedSearch",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "MemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "SavedSearch_alert_frequency_valid": {
+          "name": "SavedSearch_alert_frequency_valid",
+          "value": "\"SavedSearch\".\"OsmlsAlertFrequency\" IS NULL OR \"SavedSearch\".\"OsmlsAlertFrequency\" IN ('daily', 'weekly')"
+        },
+        "SavedSearch_alert_paused_valid": {
+          "name": "SavedSearch_alert_paused_valid",
+          "value": "\"SavedSearch\".\"OsmlsAlertPaused\" IS NULL OR \"SavedSearch\".\"OsmlsAlertPaused\" IN ('failed', 'uncertain')"
+        },
+        "SavedSearch_name_not_blank": {
+          "name": "SavedSearch_name_not_blank",
+          "value": "\"SavedSearch\".\"SavedSearchName\" IS NOT NULL AND length(trim(\"SavedSearch\".\"SavedSearchName\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.session": {
+      "name": "session",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ipAddress": {
+          "name": "ipAddress",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "userAgent": {
+          "name": "userAgent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_userId_user_id_fk": {
+          "name": "session_userId_user_id_fk",
+          "tableFrom": "session",
+          "tableTo": "user",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "session_token_unique": {
+          "name": "session_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.OsmlsShare": {
+      "name": "OsmlsShare",
+      "schema": "",
+      "columns": {
+        "ShareKey": {
+          "name": "ShareKey",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "MemberKey": {
+          "name": "MemberKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OsmlsTokenHash": {
+          "name": "OsmlsTokenHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ListingKey": {
+          "name": "ListingKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "CollectionKey": {
+          "name": "CollectionKey",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ExpirationTimestamp": {
+          "name": "ExpirationTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "OsmlsRevokedTimestamp": {
+          "name": "OsmlsRevokedTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsRecipientEmail": {
+          "name": "OsmlsRecipientEmail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsRecipientHash": {
+          "name": "OsmlsRecipientHash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OsmlsSentTimestamp": {
+          "name": "OsmlsSentTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "OriginalEntryTimestamp": {
+          "name": "OriginalEntryTimestamp",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "OsmlsShare_member_idx": {
+          "name": "OsmlsShare_member_idx",
+          "columns": [
+            {
+              "expression": "MemberKey",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "OsmlsShare_recipient_idx": {
+          "name": "OsmlsShare_recipient_idx",
+          "columns": [
+            {
+              "expression": "OsmlsRecipientHash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "OsmlsShare_MemberKey_Member_MemberKey_fk": {
+          "name": "OsmlsShare_MemberKey_Member_MemberKey_fk",
+          "tableFrom": "OsmlsShare",
+          "tableTo": "Member",
+          "columnsFrom": [
+            "MemberKey"
+          ],
+          "columnsTo": [
+            "MemberKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "OsmlsShare_ListingKey_Property_ListingKey_fk": {
+          "name": "OsmlsShare_ListingKey_Property_ListingKey_fk",
+          "tableFrom": "OsmlsShare",
+          "tableTo": "Property",
+          "columnsFrom": [
+            "ListingKey"
+          ],
+          "columnsTo": [
+            "ListingKey"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "OsmlsShare_CollectionKey_OsmlsCollection_CollectionKey_fk": {
+          "name": "OsmlsShare_CollectionKey_OsmlsCollection_CollectionKey_fk",
+          "tableFrom": "OsmlsShare",
+          "tableTo": "OsmlsCollection",
+          "columnsFrom": [
+            "CollectionKey"
+          ],
+          "columnsTo": [
+            "CollectionKey"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "OsmlsShare_OsmlsTokenHash_unique": {
+          "name": "OsmlsShare_OsmlsTokenHash_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "OsmlsTokenHash"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "OsmlsShare_one_target": {
+          "name": "OsmlsShare_one_target",
+          "value": "num_nonnulls(\"OsmlsShare\".\"ListingKey\", \"OsmlsShare\".\"CollectionKey\") <= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.user": {
+      "name": "user",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "emailVerified": {
+          "name": "emailVerified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "user_email_unique": {
+          "name": "user_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.verification": {
+      "name": "verification",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {
+    "public.listing_id_seq": {
+      "name": "listing_id_seq",
+      "schema": "public",
+      "increment": "1",
+      "startWith": "1000001",
+      "minValue": "1",
+      "maxValue": "9223372036854775807",
+      "cache": "1",
+      "cycle": false
+    }
+  },
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

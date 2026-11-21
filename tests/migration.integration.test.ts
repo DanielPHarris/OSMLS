@@ -153,4 +153,20 @@ describe("upgrading an installation that already has staff", () => {
     await expect(scratch.query(`update "OsmlsDataConsumer" set "Feed" = 'everything'`)).rejects.toThrow(/OsmlsDataConsumer_Feed_valid/);
     expect((await scratch.query(`select count(*)::int as n from "OsmlsExport"`)).rows[0].n).toBe(0);
   });
+
+  it("then gives Import listings to whoever holds Manage staff, and to no one else", async () => {
+    await apply("0015_listing_imports.sql");
+    const again = readFileSync(join("drizzle", "0015_listing_imports.sql"), "utf8").split("--> statement-breakpoint").pop()!;
+    await scratch.query(again);
+    const { rows } = await scratch.query(`select "MemberMlsId" as id, "OsmlsCapabilities" as held from "Member" order by "MemberMlsId"`);
+    expect(rows).toEqual([
+      { id: "A1", held: [] },
+      { id: "A2", held: [] },
+      { id: "S1", held: ["members", "offices", "settings", "staff", "compliance", "data", "imports"] },
+      { id: "S2", held: ["members"] },
+      { id: "S3", held: ["members", "offices", "settings", "staff", "compliance", "data", "imports"] },
+      { id: "S4", held: ["members", "offices", "settings"] },
+    ]);
+    expect((await scratch.query(`select count(*)::int as n from "OsmlsImport"`)).rows[0].n).toBe(0);
+  });
 });
