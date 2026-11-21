@@ -89,6 +89,17 @@ production-ready.**
   automatically, and this is not legal compliance. A gap of the same kind in
   the sharing work, where a member suspended while a request was waiting could
   still be given a client link, was closed on 2026-11-20 (issue #29).
+- Data exchange is under way: slice 1 of 3 is delivered. An outside system
+  holding a bearer token reads listings, agents, offices and photo records
+  through a read-only RESO Web API. What it carries is one hand-written
+  allowlist: every status, and never documents, showing instructions, lock box
+  details, members' contact details, or MLS staff accounts. Staff who hold a
+  sixth capability, "Manage data access", add and revoke the systems that may
+  read. RESO's certification tool passes against a local instance; that is not
+  a certification, its variations check and HTTPS were not tested, and the data
+  was small and synthetic. Complete synchronization is not promised. Feeds with
+  differing contents, file export, and imports (slices 2 and 3) are not built,
+  so the phase is not complete.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -244,8 +255,9 @@ toolkit and Data Dictionary.
   currently certifies. That is 2.1.
 - Do not copy RESO's code or metadata file into the repository. Do not build on the
   reference server.
-- Use RESO's certification tool as an external check once OSMLS has a Web API
-  endpoint, which is after 0.1.
+- Use RESO's certification tool as an external check of the Web API endpoint.
+  Done locally on 2026-11-20 (version 0.13.1), from outside the repository; the
+  README gives the results and their limits.
 - Describe the project factually ("field names and lookup values follow the RESO
   Data Dictionary 2.1"), with no RESO logo and no certification claim.
 - The repository contains none of RESO's code or files, uses no RESO logo, and
@@ -254,8 +266,11 @@ toolkit and Data Dictionary.
   value it uses was then compared with the 2.1 reference and is the same in both,
   so no code changed. The fields that 2.1 renamed are not ones OSMLS uses. 2.1 adds
   a tenth property type, "Commercial Real Estate", which OSMLS does not offer.
-- Not verified: data types against the Data Dictionary, and whether OSMLS would
-  pass RESO's certification tests. Both wait for the Web API work (section 10).
+- Checked on 2026-11-20, by RESO's tool against a local instance: the data types
+  of the fields the feed serves, and the Web API Core and Data Dictionary tests,
+  which pass. Not checked: the tool's variations step, which needs RESO's
+  service and credentials; HTTPS; fields outside the feed; and anything at the
+  scale certification samples. OSMLS has not been submitted for certification.
 
 Considered and not recommended: Python with Django, which provides sign-in,
 administration screens, and history with less code but puts OSMLS on a different
@@ -391,14 +406,29 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    - Members see the resulting figures, not that staff set them.
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
-   In progress. Proposed, and not yet accepted by the maintainer, as one phase
-   in three slices, complete only when all three are:
+   In progress, as one phase in three slices, each with its own issue and pull
+   request. The phase is complete only when all three are:
 
    | Slice | Delivers | Status |
    | --- | --- | --- |
-   | 1 | A read-only RESO Web API endpoint with bearer tokens, and RESO's certification tool run against it | In progress (issue #31) |
+   | 1 | A read-only RESO Web API endpoint with bearer tokens, and RESO's certification tool run against it | Done 2026-11-20 (issue #31) |
    | 2 | Controlled distribution: more than one kind of feed, and file export of search results | Not started |
    | 3 | Imports through the same validation and history as hand entry | Not started |
+
+   Decided by the maintainer on 2026-11-20 for slice 1:
+   - Three slices, in the order above.
+   - The feed is a new distribution policy: every listing status and the fields
+     on its allowlist, and never documents, showing instructions, or lock box
+     details.
+   - Member records are agents only, with name, member ID, status and office,
+     and without email or phone.
+   - Access is by bearer token for each data consumer, with one fixed
+     allowlist, not by member sign-in.
+   - Days on market and cumulative days on market are served as worked out at
+     request time, and can be filtered and sorted on.
+   - "Manage data access" is a sixth capability, given on upgrade to accounts
+     that hold "Manage staff".
+   - A page holds at most 200 records.
 5. Production operations: monitoring, backups, recovery. Measuring what committing
    listing changes one at a time costs under load belongs here.
 
