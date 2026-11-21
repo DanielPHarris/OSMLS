@@ -1007,12 +1007,99 @@ Not included: updating existing listings; migrating history, closed listings or
 earlier dates; importing photos, documents, members or offices; writing through the
 API; scheduled imports; a column-mapping screen; and Excel files.
 
+### Added since 0.1: backup and recovery
+
+The first of three slices of "production operations". One command backs up the
+database and the photo and document files together, and another restores them.
+
+**What this does and does not show.** There is no hosted instance. The backup and
+restore mechanism is proved locally, by a drill in the test suite that destroys a
+database and its files and restores them. That shows the mechanism works. It does
+not show that any installation is protected: whether backups run, where they are
+kept, and whether they are copied elsewhere and encrypted are for the installation
+to arrange.
+
+```bash
+pnpm backup                                             # one backup, into BACKUP_DIR (default ./data/backups)
+pnpm restore ./data/backups/backup-20261121T010203Z-ab12cd   # into an empty database and an empty media folder
+pnpm db:migrate                                         # after a restore: brings an older backup's schema forward
+```
+
+**What is saved.** One backup is one folder: the database as one consistent
+snapshot; every photo and document file that snapshot refers to; and a manifest
+with the time, the application and schema versions, the number of records in each
+table, and each file's size and hash.
+
+**What is not saved, and must be kept with the backups.** The installation's
+configuration, in particular `BETTER_AUTH_SECRET`. It is not in a backup, and
+should be kept separately and securely. Restoring with a different one ends
+everyone's session and, less visibly, stops the list of addresses that asked not to
+be emailed from matching, so those people could be emailed again. `DATABASE_URL`,
+`MEDIA_DIR`, and the mail settings are needed too, and can be set afresh.
+
+**The database and the files, together.** A backup is a state the system was
+actually in: every photo and document record with its file.
+
+- The files copied are the ones the database snapshot refers to, read from that
+  same snapshot.
+- A file is never changed once written. Every upload goes under a new name, and
+  replacing a document writes a new file.
+- A file is not deleted when its record is. Files no record refers to are deleted
+  only by a sweep that `pnpm backup` runs after its backup has completed.
+- The application stays in use while a backup runs. There is no maintenance pause.
+
+**What that means for deleting.** Removing a photo, or removing or replacing a
+document, takes it out of the application at once: no one is served it again. Its
+file stays on disk until the next backup run's sweep, and stays inside backups
+until they are pruned. Deleting a document does not make it unrecoverable at once.
+
+**Complete or not at all.** A backup is written under a name that marks it
+incomplete, checked against its manifest, and only then given its final name. One
+that fails part-way leaves nothing behind, is never listed or restored from, and
+causes nothing to be pruned. One backup runs at a time; another started meanwhile,
+and the pruning and the sweep, wait for it.
+
+**Uploads and the sweep.** An upload holds a lock from before it writes its file
+until its record is committed, and the sweep waits for that lock. So the sweep
+never deletes the file of an upload still in progress, however long it takes. An
+upload never waits for a backup.
+
+**Where and how often.** `pnpm backup` writes to `BACKUP_DIR` on the same machine
+and keeps the newest `BACKUP_KEEP` complete backups (14 unless set). The Docker
+Compose setup runs it once a day. Copying backups off the machine and encrypting
+them are not done: both are possible and are left out of this slice by choice.
+Until an installation does both, losing the disk loses the backups with the data.
+
+**What a restore loses.** Everything since the last completed backup. There is no
+point-in-time recovery.
+
+**Restoring.**
+
+- The backup is checked against its manifest first; one that does not match, or has
+  a file missing or altered, is refused.
+- The database and the media folder must both be empty. Nothing is overwritten.
+- A backup made at a schema this version of the application does not know (one made
+  by a newer version) is refused. One made by an older version is restored as it
+  was, and `pnpm db:migrate` then brings it forward.
+- Afterwards the result is checked against the manifest, record for record and file
+  for file.
+
+**The tools.** Backup and restore use PostgreSQL's own `pg_dump` and `pg_restore`,
+which must be of the server's major version. The Docker image has them. Where the
+ones on the `PATH` are another version, as on many developers' machines, the same
+tools are run from the PostgreSQL Docker image of the server's version;
+`OSMLS_PG_TOOLS=path` or `=docker` settles it without looking.
+
+Not included: copying backups off the machine, encrypting them, point-in-time
+recovery, restoring part of a backup, and telling anyone when backups stop running
+(that is the monitoring slice).
+
 ### Not yet built
 
 Client accounts and scheduled email to clients, brokerage-wide access,
 self-service password reset, migrating an existing MLS's historical records,
-fair-housing checks on remarks, and production operations (monitoring, backups,
-recovery). See the charter for the planned order.
+monitoring and performance measurement (the rest of production operations), and
+fair-housing checks on remarks. See the charter for the planned order.
 
 ## Try it
 

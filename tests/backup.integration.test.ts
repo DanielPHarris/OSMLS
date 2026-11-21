@@ -9,11 +9,13 @@
  * use the application run as separate processes pointed at that storage
  * (tests/drill-steps.ts).
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BackupError, knownMigrations, listBackups, pruneBackups, restoreBackup, sweepUnreferencedFiles, takeBackup, verifyBackup, type Manifest } from "../src/lib/backup";
@@ -205,7 +207,7 @@ describe("a backup that does not complete", () => {
       writeFileSync(lost, bytes);
       const second = await takeBackup(here, { applicationVersion: "drill" });
       const third = await takeBackup(here, { applicationVersion: "drill" });
-      expect(await pruneBackups(backups, 2)).toEqual({ deleted: [good.name] });
+      expect(await pruneBackups(here, 2)).toEqual({ deleted: [good.name] });
       expect(await listBackups(backups)).toEqual([third.name, second.name].sort().reverse());
     } finally {
       await admin.query(`drop database if exists ${scratch} with (force)`);
@@ -214,7 +216,7 @@ describe("a backup that does not complete", () => {
 });
 
 describe("files no record refers to", () => {
-  it("are deleted only by the sweep, never while young enough to belong to an upload in progress", async () => {
+  it("are deleted by the sweep and by nothing else, and the files in use are kept", async () => {
     const scratch = `osmls_drill_sweep_${run}`;
     await admin.query(`create database ${scratch}`);
     const media = path.join(work, "sweep-media");
@@ -227,11 +229,8 @@ describe("files no record refers to", () => {
       const onDisk = () => readdirSync(media).filter((e) => e !== "documents").length + readdirSync(path.join(media, "documents")).length;
       // Removing and replacing deleted no file: five were uploaded, a sixth replaced one, and all six remain.
       expect(onDisk()).toBe(6);
-      // Just written: left alone, because an upload's file exists before its record does.
-      expect(await sweepUnreferencedFiles(here)).toEqual({ deleted: [] });
-      expect(onDisk()).toBe(6);
-      // Once they are old enough, the three that no record refers to are deleted, and the three in use are kept.
-      const swept = await sweepUnreferencedFiles(here, { olderThanMs: 0 });
+      // The sweep deletes the three that no record refers to, and keeps the three in use.
+      const swept = await sweepUnreferencedFiles(here);
       expect(swept.deleted).toHaveLength(3);
       expect(onDisk()).toBe(3);
       const kept = await query(scratch, `select "OsmlsStoragePath", "MediaCategory" from "Media"`);
@@ -243,3 +242,146 @@ describe("files no record refers to", () => {
     }
   }, 180_000);
 });
+
+describe("backups, pruning and uploads at the same moment", () => {
+  const scratch = `osmls_drill_overlap_${run}`;
+  const media = path.join(work, "overlap-media");
+  const backups = path.join(work, "overlap-backups");
+  const here = { databaseUrl: urlFor(scratch), mediaDir: media, backupDir: backups };
+  let loaded: { listingKey: string };
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const filesOnDisk = () => readdirSync(media).filter((e) => e !== "documents");
+
+  beforeAll(async () => {
+    await admin.query(`create database ${scratch}`);
+    app("scripts/migrate.ts", scratch, media);
+    app("scripts/seed.ts", scratch, media);
+    loaded = step("load", scratch, media);
+  }, 120_000);
+  afterAll(() => admin.query(`drop database if exists ${scratch} with (force)`));
+
+  it("never removes a running backup's files by pruning, and lets overlapping backups both complete", async () => {
+    let release!: () => void;
+    let reached!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const running = new Promise<void>((resolve) => (reached = resolve));
+    // A backup that is part-way through: its snapshot taken, its files not yet copied.
+    const first = takeBackup(here, { applicationVersion: "drill", afterSnapshot: async () => { reached(); await held; } });
+    await running;
+    const working = readdirSync(backups).filter((e) => e.startsWith("incomplete-"));
+    expect(working).toHaveLength(1);
+
+    // Meanwhile, as an on-demand run overlapping the scheduled one would: pruning, and a second backup.
+    let pruned = false;
+    const pruning = pruneBackups(here, 14).then((result) => { pruned = true; return result; });
+    const second = takeBackup(here, { applicationVersion: "drill" });
+    await pause(1500);
+    // The running backup's working folder is untouched, and the pruning has not gone ahead without it.
+    expect(readdirSync(backups).filter((e) => e.startsWith("incomplete-"))).toEqual(working);
+    expect(pruned).toBe(false);
+
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    await pruning;
+    // Both backups completed and are whole; nothing incomplete is left.
+    expect((await listBackups(backups)).sort()).toEqual([a.name, b.name].sort());
+    for (const made of [a, b]) await expect(verifyBackup(made.dir)).resolves.toBeTruthy();
+    expect(readdirSync(backups).filter((e) => e.startsWith("incomplete-"))).toEqual([]);
+  }, 120_000);
+
+  it("removes what an abandoned backup left behind, once no backup is running", async () => {
+    // A working folder with no backup behind it, as a run that was killed would leave.
+    mkdirSync(path.join(backups, "incomplete-backup-20200101T000000Z-abcdef", "files"), { recursive: true });
+    const before = await listBackups(backups);
+    expect((await pruneBackups(here, 14)).deleted).toEqual([]);
+    expect(readdirSync(backups).filter((e) => e.startsWith("incomplete-"))).toEqual([]);
+    expect(await listBackups(backups)).toEqual(before);
+  }, 60_000);
+
+  it("never deletes the file of an upload that is still in progress, however long it takes", async () => {
+    const before = new Set(filesOnDisk());
+    // The listing is held by another transaction, so the upload has written its file and is waiting to record it.
+    const holder = new Client({ connectionString: urlFor(scratch) });
+    await holder.connect();
+    try {
+    await holder.query("begin");
+    await holder.query(`select 1 from "Property" where "ListingKey" = '${loaded.listingKey}' for update`);
+    const upload = new Promise<{ mediaKey: string; file: string }>((resolve, reject) => {
+      const child = spawn("pnpm", ["exec", "tsx", "tests/drill-steps.ts", "upload-photo", JSON.stringify(loaded)], { env: { ...process.env, DATABASE_URL: urlFor(scratch), MEDIA_DIR: media, SMTP_URL: "" } });
+      let out = "";
+      child.stdout.on("data", (chunk) => (out += chunk));
+      child.on("close", (code) => (code === 0 ? resolve(JSON.parse(out.trim().split("\n").pop()!)) : reject(new Error(`upload exited ${code}: ${out}`))));
+    });
+    let written: string[] = [];
+    for (let i = 0; i < 100 && written.length === 0; i++) {
+      await pause(100);
+      written = filesOnDisk().filter((f) => !before.has(f));
+    }
+    expect(written).toHaveLength(1);
+    // The upload has been stuck for a long time: its file is hours old, and no record refers to it yet.
+    const longAgo = new Date(Date.now() - 5 * 60 * 60 * 1000);
+    utimesSync(path.join(media, written[0]), longAgo, longAgo);
+
+    let swept = false;
+    const sweeping = sweepUnreferencedFiles(here).then((result) => { swept = true; return result; });
+    await pause(1500);
+    // The sweep has not deleted it, and has not finished: it waits for the upload.
+    expect(filesOnDisk()).toContain(written[0]);
+    expect(swept).toBe(false);
+
+    await holder.query("rollback");
+    const uploaded = await upload;
+    const result = await sweeping;
+    expect(uploaded.file).toBe(written[0]);
+    expect(result.deleted).not.toContain(written[0]);
+    // The record exists and so does its file.
+    expect(await query(scratch, `select count(*)::int as n from "Media" where "MediaKey" = '${uploaded.mediaKey}'`)).toEqual([{ n: 1 }]);
+    expect(readFileSync(path.join(media, uploaded.file)).length).toBeGreaterThan(0);
+    } finally {
+      // Whatever happened above, the listing is let go, so nothing is left waiting on it.
+      await holder.end().catch(() => {});
+    }
+  }, 120_000);
+});
+
+describe("a backup made by an earlier version", () => {
+  it("is restored as it was, and the migration step then brings it forward", async () => {
+    const older = `osmls_drill_older_${run}`;
+    const restored = `osmls_drill_older_restored_${run}`;
+    for (const name of [older, restored]) await admin.query(`create database ${name}`);
+    try {
+      // An installation one migration behind this one: migrated from a copy of the migrations without the newest.
+      const folder = path.join(work, "older-drizzle");
+      cpSync("drizzle", folder, { recursive: true });
+      const journalFile = path.join(folder, "meta", "_journal.json");
+      const journal = JSON.parse(readFileSync(journalFile, "utf8"));
+      const newest = journal.entries.pop();
+      writeFileSync(journalFile, JSON.stringify(journal));
+      const client = new Client({ connectionString: urlFor(older) });
+      await client.connect();
+      await migrate(drizzle(client), { migrationsFolder: folder });
+      await client.query(`insert into "Office" ("OfficeMlsId", "OfficeName") values ('OLD1', 'From the older version')`);
+      await client.end();
+      const known = await knownMigrations();
+      const backups = path.join(work, "older-backups");
+      const made = await takeBackup({ databaseUrl: urlFor(older), mediaDir: path.join(work, "older-media"), backupDir: backups }, { applicationVersion: "older" });
+      expect(made.manifest.schema.migrations).toEqual(known.slice(0, -1));
+
+      const media = path.join(work, "older-restored-media");
+      await restoreBackup(made.dir, { databaseUrl: urlFor(restored), mediaDir: media }, { knownMigrations: known });
+      // Restored as it was: the older schema, without what the newest migration adds.
+      const tables = async () => (await query(restored, `select table_name from information_schema.tables where table_schema = 'public'`)).map((r) => r.table_name);
+      const added = /CREATE TABLE "([^"]+)"/.exec(readFileSync(path.join("drizzle", `${newest.tag}.sql`), "utf8"))![1];
+      expect(await tables()).not.toContain(added);
+      expect(await query(restored, `select "OfficeName" from "Office"`)).toEqual([{ OfficeName: "From the older version" }]);
+      // The application's own migration step brings it to the current schema, and the data is still there.
+      expect(app("scripts/migrate.ts", restored, media)).toContain("Migrations applied.");
+      expect(await tables()).toContain(added);
+      expect((await query(restored, `select count(*)::int as n from drizzle.__drizzle_migrations`))[0].n).toBe(known.length);
+      expect(await query(restored, `select "OfficeName" from "Office"`)).toEqual([{ OfficeName: "From the older version" }]);
+    } finally {
+      for (const name of [older, restored]) await admin.query(`drop database if exists ${name} with (force)`);
+    }
+  }, 180_000);
+});
+

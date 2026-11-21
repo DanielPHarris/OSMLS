@@ -97,9 +97,9 @@ afterAll(() => pool.end());
  * A file is not deleted when its record is removed or replaced: a backup being
  * taken may refer to it (src/lib/backup.ts). It is deleted by the sweep, once
  * no record refers to it. These tests run the sweep as the scheduled command
- * would, treating every file as old enough.
+ * would.
  */
-const sweep = () => sweepUnreferencedFiles({ databaseUrl: process.env.DATABASE_URL!, mediaDir: mediaDir() }, { olderThanMs: 0 });
+const sweep = () => sweepUnreferencedFiles({ databaseUrl: process.env.DATABASE_URL!, mediaDir: mediaDir() });
 
 describe("file validation", () => {
   it("identifies PDF, JPEG, and PNG by content", () => {

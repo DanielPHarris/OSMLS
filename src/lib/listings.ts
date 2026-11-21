@@ -3,6 +3,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, asc, between, count, desc, eq, gte, ilike, inArray, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { db, type Tx } from "../db";
+import { FILES_LOCK } from "./backup";
 import {
   historyTransactional,
   media,
@@ -132,6 +133,13 @@ export function authorizeChange(actor: Actor, listing: Property, correctionReaso
     );
   return { OsmlsStaffCorrection: false, OsmlsCorrectionReason: null };
 }
+
+/**
+ * Taken by every upload inside its transaction, before it writes its file. See
+ * FILES_LOCK in src/lib/backup.ts: it is what keeps the sweep away from a file
+ * whose record is still on its way.
+ */
+export const holdFilesShared = (tx: Tx) => tx.execute(sql.raw(`select pg_advisory_xact_lock_shared(${FILES_LOCK})`));
 
 export async function lockListing(tx: Tx, listingKey: string): Promise<Property> {
   const [row] = await tx.select().from(property).where(eq(property.ListingKey, listingKey)).for("update");
@@ -359,10 +367,12 @@ export async function addPhoto(
   if (!type) throw new ListingError("Photos must be JPEG, PNG, or WebP images.");
 
   const fileName = `${randomUUID()}.${type.ext}`;
-  await mkdir(mediaDir(), { recursive: true });
-  await writeFile(path.join(mediaDir(), fileName), bytes);
   try {
     return await db.transaction(async (tx) => {
+      // Held until the record is committed, so the sweep never mistakes this file for one nothing refers to.
+      await holdFilesShared(tx);
+      await mkdir(mediaDir(), { recursive: true });
+      await writeFile(path.join(mediaDir(), fileName), bytes);
       const listing = await lockListing(tx, listingKey);
       const correction = authorizeChange(actor, listing, correctionReason);
       const existing = await tx

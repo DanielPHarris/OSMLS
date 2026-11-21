@@ -23,7 +23,7 @@ const applicationVersion = JSON.parse(readFileSync("package.json", "utf8")).vers
 
 const made = await takeBackup(target, { applicationVersion });
 console.log(`Backup: ${made.dir} (${made.manifest.files.length} files, ${Object.values(made.manifest.tables).reduce((a, b) => a + b, 0)} records).`);
-const pruned = await pruneBackups(target.backupDir, keep);
+const pruned = await pruneBackups(target, keep);
 console.log(`Backups: ${pruned.deleted.length} older than the last ${keep} deleted.`);
 const swept = await sweepUnreferencedFiles(target);
 console.log(`Files: ${swept.deleted.length} that no record refers to deleted.`);

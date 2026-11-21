@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { db, type Tx } from "../db";
 import { historyTransactional, media, property, type Media, type Property } from "../db/schema";
 import { canViewDocument, type Viewer } from "./access";
-import { ListingError, authorizeChange, lockListing, mediaDir, type Actor } from "./listings";
+import { ListingError, authorizeChange, holdFilesShared, lockListing, mediaDir, type Actor } from "./listings";
 import { DOCUMENT_PERMISSIONS, DEFAULT_DOCUMENT_PERMISSION, type DocumentPermission } from "./lookups";
 import { MAX_DOCUMENT_BYTES, MAX_DOCUMENTS_PER_LISTING } from "./rules/local";
 
@@ -113,11 +113,17 @@ async function record(
   await tx.update(property).set({ ModificationTimestamp: new Date() }).where(eq(property.ListingKey, listing.ListingKey));
 }
 
-async function storeFile(bytes: Uint8Array, ext: string): Promise<string> {
-  const storedName = `${randomUUID()}.${ext}`;
+const newStoredName = (ext: string) => `${randomUUID()}.${ext}`;
+
+/**
+ * Writes an upload's file. Called inside the upload's transaction, after it
+ * has taken the files lock, so that the sweep never finds this file without
+ * its record while the record is still on its way.
+ */
+async function storeFile(tx: Tx, storedName: string, bytes: Uint8Array): Promise<void> {
+  await holdFilesShared(tx);
   await mkdir(documentsDir(), { recursive: true });
   await writeFile(documentPath(storedName), bytes, { mode: 0o600 });
-  return storedName;
 }
 
 /**
@@ -137,9 +143,10 @@ export async function addDocument(
   const name = checkedName(input.name);
   const permission = checkedPermission(input.permission);
   const { type, hash } = checkedFile(input.bytes);
-  const storedName = await storeFile(input.bytes, type.ext);
+  const storedName = newStoredName(type.ext);
   try {
     return await db.transaction(async (tx) => {
+      await storeFile(tx, storedName, input.bytes);
       const listing = await lockListing(tx, listingKey);
       const correction = authorizeChange(actor, listing, correctionReason);
       const existing = await tx
@@ -181,11 +188,12 @@ export async function replaceDocument(
   correctionReason?: string | null,
 ): Promise<Media> {
   const { type, hash } = checkedFile(bytes);
-  const storedName = await storeFile(bytes, type.ext);
+  const storedName = newStoredName(type.ext);
   let superseded: string;
   let updated: Media;
   try {
     [superseded, updated] = await db.transaction(async (tx) => {
+      await storeFile(tx, storedName, bytes);
       const { current, listing } = await findForChange(tx, actor, mediaKey);
       const correction = authorizeChange(actor, listing, correctionReason);
       const [next] = await tx

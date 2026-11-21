@@ -54,6 +54,11 @@ if (step === "load") {
   const created = await createListing(agent, fields("After The Restore Rd", "600000"));
   const [restored] = await db.select().from(property).where(eq(property.StreetName, "Drill Rd"));
   result = { signedIn, before, after: await highest(), newListingNumber: Number(created.ListingId.slice(2)), restoredListPrice: restored.ListPrice };
+} else if (step === "upload-photo") {
+  // One more photo on the loaded listing, uploaded as a member would.
+  const loaded = JSON.parse(argument);
+  const photo = await addPhoto(agent, loaded.listingKey, png);
+  result = { mediaKey: photo.MediaKey, file: photo.OsmlsStoragePath };
 } else throw new Error(`Unknown step: ${step}`);
 
 console.log(JSON.stringify(result));

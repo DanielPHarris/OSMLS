@@ -22,14 +22,30 @@ import { Client } from "pg";
  *
  * A backup is complete or it does not exist: it is written under a name that
  * marks it incomplete, checked against its manifest, and only then given its
- * final name. Nothing here uses the application's own database connection, so
+ * final name. One backup runs at a time; another started meanwhile waits for
+ * it. Nothing here uses the application's own database connection, so
  * the same functions serve the scheduled command, the restore command, and a
  * drill against storage of its own.
  */
 
 export const BACKUP_FORMAT = 1;
 const COMPLETE = /^backup-\d{8}T\d{6}Z-[0-9a-f]{6}$/;
+/**
+ * Held by a backup from before its working folder exists until it has a final
+ * name or is gone, by pruning, and by the sweep. So a folder with an
+ * incomplete name is abandoned, and safe to remove, exactly when this lock can
+ * be taken: no backup is running.
+ */
 const BACKUP_LOCK = `hashtext('osmls:backup')`;
+
+/**
+ * Held shared by every upload from before its file is written until its record
+ * is committed, and exclusively by the sweep. So while the sweep looks for
+ * files no record refers to, no upload is part-way through: every file on disk
+ * either has its record or never will. An upload does not wait for a backup,
+ * only, briefly, for a sweep.
+ */
+export const FILES_LOCK = `hashtext('osmls:files')`;
 
 export type Manifest = {
   format: number;
@@ -144,7 +160,6 @@ export async function takeBackup(target: BackupTarget, options: { applicationVer
   const stamp = createdAt.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   const name = `backup-${stamp}-${randomBytes(3).toString("hex")}`;
   const working = path.join(target.backupDir, `incomplete-${name}`);
-  await mkdir(path.join(working, "files", "documents"), { recursive: true });
 
   // One connection holds the lock for the whole backup; another holds the snapshot.
   const lock = new Client({ connectionString: target.databaseUrl });
@@ -152,7 +167,9 @@ export async function takeBackup(target: BackupTarget, options: { applicationVer
   await lock.connect();
   await snapshot.connect();
   try {
+    // The lock first, and only then the working folder: a working folder never exists without its backup holding the lock.
     await lock.query(`select pg_advisory_lock(${BACKUP_LOCK})`);
+    await mkdir(path.join(working, "files", "documents"), { recursive: true });
     await snapshot.query("begin isolation level repeatable read read only");
     const snapshotId = (await snapshot.query("select pg_export_snapshot() as id")).rows[0].id as string;
     const serverMajor = await serverMajorOf(snapshot);
@@ -229,46 +246,57 @@ export async function listBackups(backupDir: string): Promise<string[]> {
 }
 
 /**
- * Deletes the oldest complete backups beyond the number to keep, and what a
- * failed backup left behind. Called only after a backup has completed, so a
- * run of failures never removes a good backup.
+ * Deletes the oldest complete backups beyond the number to keep, and what an
+ * abandoned backup left behind. It holds the backup lock while it does, so it
+ * waits for any backup that is running: a working folder it finds belongs to
+ * no one. Called only after a backup has completed, so a run of failures never
+ * removes a good backup.
  */
-export async function pruneBackups(backupDir: string, keep: number): Promise<{ deleted: string[] }> {
-  const complete = await listBackups(backupDir);
-  const deleted = complete.slice(Math.max(keep, 1));
-  for (const name of deleted) await rm(path.join(backupDir, name), { recursive: true, force: true });
-  for (const entry of await readdir(backupDir).catch(() => [] as string[])) if (entry.startsWith("incomplete-")) await rm(path.join(backupDir, entry), { recursive: true, force: true });
-  return { deleted };
+export async function pruneBackups(target: Pick<BackupTarget, "databaseUrl" | "backupDir">, keep: number): Promise<{ deleted: string[] }> {
+  const client = new Client({ connectionString: target.databaseUrl });
+  await client.connect();
+  try {
+    await client.query(`select pg_advisory_lock(${BACKUP_LOCK})`);
+    const complete = await listBackups(target.backupDir);
+    const deleted = complete.slice(Math.max(keep, 1));
+    for (const name of deleted) await rm(path.join(target.backupDir, name), { recursive: true, force: true });
+    for (const entry of await readdir(target.backupDir).catch(() => [] as string[])) {
+      if (entry.startsWith("incomplete-")) await rm(path.join(target.backupDir, entry), { recursive: true, force: true });
+    }
+    return { deleted };
+  } finally {
+    await client.end().catch(() => {});
+  }
 }
 
 // ---- Deleting files nothing refers to ----
 
 /**
  * Deletes photo and document files that no record refers to. This is the only
- * place such a file is deleted. It holds the lock a backup holds, so it never
- * runs while a backup is between its snapshot and its copy. A file written in
- * the last hour is left alone: it may belong to an upload whose record is not
- * committed yet.
+ * place such a file is deleted.
+ *
+ * It holds the backup lock, so it never runs while a backup is between its
+ * snapshot and its copy. And it holds the files lock exclusively, which every
+ * upload holds shared from before it writes its file until its record is
+ * committed. So it waits for uploads in progress, however long they take, and
+ * none can begin while it works: a file it finds with no record is one whose
+ * upload failed or whose record has been removed, never one still on its way.
  */
-export async function sweepUnreferencedFiles(target: Pick<BackupTarget, "databaseUrl" | "mediaDir">, options: { olderThanMs?: number } = {}): Promise<{ deleted: string[] }> {
-  const olderThan = Date.now() - (options.olderThanMs ?? 60 * 60 * 1000);
+export async function sweepUnreferencedFiles(target: Pick<BackupTarget, "databaseUrl" | "mediaDir">): Promise<{ deleted: string[] }> {
   const client = new Client({ connectionString: target.databaseUrl });
   await client.connect();
   try {
     await client.query(`select pg_advisory_lock(${BACKUP_LOCK})`);
-    const candidates: string[] = [];
-    for (const folder of ["", "documents"]) {
-      for (const entry of await readdir(path.join(target.mediaDir, folder), { withFileTypes: true }).catch(() => [])) if (entry.isFile()) candidates.push(path.join(folder, entry.name));
-    }
-    // Read after the files are listed: a record committed in between is seen, and its file kept.
+    await client.query(`select pg_advisory_lock(${FILES_LOCK})`);
     const referenced = new Set((await referencedFiles(client)).map(filePathOf));
     const deleted: string[] = [];
-    for (const relative of candidates) {
-      if (referenced.has(relative)) continue;
-      const file = path.join(target.mediaDir, relative);
-      if ((await stat(file)).mtimeMs > olderThan) continue;
-      await unlink(file);
-      deleted.push(relative);
+    for (const folder of ["", "documents"]) {
+      for (const entry of await readdir(path.join(target.mediaDir, folder), { withFileTypes: true }).catch(() => [])) {
+        const relative = path.join(folder, entry.name);
+        if (!entry.isFile() || referenced.has(relative)) continue;
+        await unlink(path.join(target.mediaDir, relative));
+        deleted.push(relative);
+      }
     }
     return { deleted };
   } finally {
