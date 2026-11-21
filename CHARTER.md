@@ -110,6 +110,17 @@ production-ready.**
   is confirmed, and a commit creates exactly the rows the preview accepted or
   nothing. The importer cannot migrate an existing MLS's historical records;
   that is deferred (section 4).
+- Production operations is under way: slice 1 of 3 is delivered. One command
+  backs up the database and the photo and document files together, as one
+  state the system was in, with the application in use throughout; another
+  restores them into an empty database and folder and checks the result. A
+  drill in the test suite destroys a database and its files and restores them.
+  To make that possible, removing a photo or a document no longer deletes its
+  file at once: it leaves the application immediately, and its file is deleted
+  later and remains in backups until they are pruned. This is proved locally
+  only. Backups stay on the same machine, unencrypted, and nothing yet reports
+  when they stop. Monitoring and performance measurement (slices 2 and 3) are
+  not built, so the phase is not complete.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -481,12 +492,12 @@ Next, in this order unless contributors and the maintainer agree otherwise:
      alerts.
 5. Production operations: monitoring, backups, recovery. Measuring what committing
    listing changes one at a time costs under load belongs here.
-   In progress. Proposed, and not yet accepted by the maintainer, as one phase
-   in three slices, complete only when all three are:
+   In progress, as one phase in three slices, each with its own issue and pull
+   request. The phase is complete only when all three are:
 
    | Slice | Delivers | Status |
    | --- | --- | --- |
-   | 1 | Backup and recovery, proved by a restore drill in which the database and the uploaded files are restored together | In progress (issue #37) |
+   | 1 | Backup and recovery, proved by a restore drill in which the database and the uploaded files are restored together | Done 2026-11-21 (issue #37) |
    | 2 | Monitoring: health checks, failure reporting, and a status screen | Not started |
    | 3 | Performance: the measured throughput and latency of listing changes, which commit one at a time | Not started |
 
@@ -499,6 +510,21 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    notices when the machine, or the scheduled command itself, has stopped; log
    shipping and paging; secrets management; sizing; and object storage for
    files.
+
+   Decided by the maintainer on 2026-11-21 for slice 1:
+   - Three slices: backup and recovery, monitoring, performance measurement.
+   - The phase is proved locally; what a hosted installation needs beyond it is
+     listed above and not built.
+   - The database and the files are kept consistent by never changing a file
+     and deferring its deletion, with no maintenance pause. So a removed photo
+     or document stays on disk until the next sweep, and in backups until they
+     are pruned.
+   - Backups go to a local directory, daily, keeping 14. Copying them off the
+     machine and encrypting them are left out by choice.
+   - A backup is restored only into an empty database and an empty media
+     folder.
+   - There is no point-in-time recovery: a restore loses everything since the
+     last completed backup.
 
 Agreed by the maintainer on 2026-11-20: this roadmap ends with items 4 and 5,
 data exchange and then production operations, in that order. What section 4
