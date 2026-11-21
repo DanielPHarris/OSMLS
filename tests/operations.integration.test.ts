@@ -344,11 +344,12 @@ describe("a run that does nothing", () => {
 describe("the status screen's data", () => {
   it("is for staff who manage settings and no one else", async () => {
     const members = await db.select().from(member);
-    const staff = members.find((m) => m.OsmlsRole === "staff" && m.OsmlsCapabilities.includes("settings"))!;
-    const agent = members.find((m) => m.OsmlsRole === "agent")!;
+    // The seeded administrator, taken as active whatever state other tests' accounts are in.
+    const staff = { ...members.find((m) => m.MemberEmail === "morgan.ellis@osmls.example")!, MemberStatus: "Active", OsmlsCapabilities: ["settings"] };
+    const agent = members.find((m) => m.MemberMlsId === "AG1001")!;
     expect(await getOperationsStatus(null)).toBeNull();
     expect(await getOperationsStatus(agent)).toBeNull();
-    expect(await getOperationsStatus({ ...staff, OsmlsCapabilities: staff.OsmlsCapabilities.filter((c) => c !== "settings") })).toBeNull();
+    expect(await getOperationsStatus({ ...staff, OsmlsCapabilities: ["members", "staff"] })).toBeNull();
     expect(await getOperationsStatus({ ...staff, MemberStatus: "Inactive" })).toBeNull();
 
     // With nothing recorded, it says so: no run has completed, and that alone is not "backup overdue".
