@@ -1,5 +1,5 @@
 {
-  "id": "ffae5d04-d223-45f2-a266-a8ad02206044",
+  "id": "ad5cb71f-b142-4b68-86dd-9ee5c89e6383",
   "prevId": "66e38abf-e63a-4a71-9f22-92569a2602a6",
   "version": "7",
   "dialect": "postgresql",
@@ -1113,6 +1113,12 @@
         "Content": {
           "name": "Content",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "StructuralError": {
+          "name": "StructuralError",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

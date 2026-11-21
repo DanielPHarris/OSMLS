@@ -72,6 +72,12 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((v) => v.trim() !== ""));
 }
 
+/**
+ * A row as the file gave it. `malformed` is why it could not be read as the
+ * header describes, when it could not; it is stored with the row, because it
+ * is a fact about the file and not something to be worked out again from what
+ * was kept of the row.
+ */
 type FileRow = { rowNumber: number; content: Record<string, string>; malformed?: string };
 
 /**
@@ -251,7 +257,16 @@ export async function previewImport(actor: Member | null, upload: { fileName?: u
       .values({ SourceName: sourceName, Source: source, FileName: fileName, FileHash: createHash("sha256").update(upload.text as string).digest("hex"), CreatedByMemberKey: by.MemberKey })
       .returning();
     await tx.insert(listingImportRow).values(
-      assessed.map((row) => ({ ImportKey: made.ImportKey, RowNumber: row.rowNumber, Source: source, SourceListingId: row.sourceListingId, Outcome: row.outcome, Reasons: row.reasons, Content: row.content })),
+      assessed.map((row) => ({
+        ImportKey: made.ImportKey,
+        RowNumber: row.rowNumber,
+        Source: source,
+        SourceListingId: row.sourceListingId,
+        Outcome: row.outcome,
+        Reasons: row.reasons,
+        Content: row.content,
+        StructuralError: rows.find((r) => r.rowNumber === row.rowNumber)?.malformed ?? null,
+      })),
     );
     return made;
   });
@@ -334,7 +349,9 @@ export async function listImports(actor: Member | null) {
 /** Thrown inside a commit when a row it was going to create is no longer acceptable. Nothing has been created. */
 class NoLongerAccepted extends Error {}
 
-const stored = (rows: ListingImportRow[]): FileRow[] => rows.filter((r) => r.Content).map((r) => ({ rowNumber: r.RowNumber, content: r.Content! }));
+/** The rows of a preview as the file gave them, structural errors included, to be judged again. */
+const stored = (rows: ListingImportRow[]): FileRow[] =>
+  rows.filter((r) => r.Content).map((r) => ({ rowNumber: r.RowNumber, content: r.Content!, malformed: r.StructuralError ?? undefined }));
 
 /**
  * Creates the listings a preview accepted: exactly those, all of them, or
@@ -365,7 +382,8 @@ export async function commitImport(actor: Member | null, key: unknown): Promise<
         if (found.State !== "Previewed") throw new ListingError("This import has already been committed. Nothing more was created.");
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext('osmls:import:commit'))`);
         const rows = await tx.select().from(listingImportRow).where(eq(listingImportRow.ImportKey, key)).orderBy(asc(listingImportRow.RowNumber));
-        const wanted = rows.filter((r) => r.Outcome === "Accepted");
+        // A row the file could not be read for is never one to create, whatever its outcome says.
+        const wanted = rows.filter((r) => r.Outcome === "Accepted" && !r.StructuralError);
         if (wanted.length === 0) throw new ListingError("No row of this file was accepted, so there is nothing to create.");
 
         // The turn of every property about to be given a listing, before anything is looked at.
@@ -396,7 +414,7 @@ export async function commitImport(actor: Member | null, key: unknown): Promise<
           await tx.update(listingImportRow).set({ ListingKey: created.ListingKey }).where(and(eq(listingImportRow.ImportKey, key), eq(listingImportRow.RowNumber, row!.rowNumber)));
         }
         // The record of the import stays; what its rows held does not.
-        await tx.update(listingImportRow).set({ Content: null }).where(eq(listingImportRow.ImportKey, key));
+        await tx.update(listingImportRow).set({ Content: null, StructuralError: null }).where(eq(listingImportRow.ImportKey, key));
         await tx.update(listingImport).set({ State: "Committed", CommittedByMemberKey: by.MemberKey, CommittedTimestamp: now }).where(eq(listingImport.ImportKey, key));
         return { created: creating.length, stale: false };
       });

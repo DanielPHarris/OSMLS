@@ -656,6 +656,9 @@ export const listingImportRow = pgTable(
     Reasons: jsonb().$type<string[]>().notNull(),
     // What the row held, kept only while the import is a preview.
     Content: jsonb().$type<Record<string, string>>(),
+    // Why the row could not be read as the header describes, if it could not. It is part of what the
+    // file said, kept with the row so that judging the row again can never lose it.
+    StructuralError: text(),
     // The listing a commit created from this row.
     ListingKey: uuid().references(() => property.ListingKey),
   },

@@ -21,6 +21,7 @@ CREATE TABLE "OsmlsImportRow" (
 	"Outcome" text NOT NULL,
 	"Reasons" jsonb NOT NULL,
 	"Content" jsonb,
+	"StructuralError" text,
 	"ListingKey" uuid,
 	CONSTRAINT "OsmlsImportRow_ImportKey_RowNumber_pk" PRIMARY KEY("ImportKey","RowNumber"),
 	CONSTRAINT "OsmlsImportRow_Outcome_valid" CHECK ("Outcome" IN ('Accepted', 'Refused', 'Duplicate'))

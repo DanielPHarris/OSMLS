@@ -153,6 +153,31 @@ describe("the first proof of importing", () => {
     expect((await listingsIn(street)).map((l) => l.ListAgentKey)).toEqual([agent.MemberKey]);
   });
 
+  it("never makes a malformed row importable by refreshing the preview and trying again", async () => {
+    const first = await newAgent();
+    const street = `Malformed Rd ${run}`;
+    const good = row({ StreetName: street, ListAgentMlsId: first.MemberMlsId });
+    // A row that would be a perfectly good listing, but for one value too many.
+    const text = `${csv([good, row({ StreetName: street })])},an extra value`;
+    const preview = await previewImport(admin, { fileName: "malformed.csv", sourceName: `Source ${run}`, text });
+    const reason = `The row has ${HEADER.length + 1} values and the header has ${HEADER.length} columns.`;
+    const rows = async () => (await getImport(admin, preview.ImportKey))!.rows.map((r) => [r.Outcome, r.Reasons] as const);
+    expect(await rows()).toEqual([["Accepted", []], ["Refused", [reason]]]);
+
+    // The good row stops passing, so the commit creates nothing and the preview is judged again.
+    await setMemberStatus(admin, first.MemberKey, "Inactive", "suspended after the preview");
+    expect(await commitImport(admin, preview.ImportKey)).toEqual({ created: 0, stale: true });
+    expect((await rows())[1]).toEqual(["Refused", [reason]]);
+    expect((await rows())[0][0]).toBe("Refused");
+
+    // Trying again, any number of times, and with the good row good again, never creates the malformed one.
+    await expect(commitImport(admin, preview.ImportKey)).rejects.toThrow("No row of this file was accepted, so there is nothing to create.");
+    await setMemberStatus(admin, first.MemberKey, "Active", "reinstated");
+    await expect(commitImport(admin, preview.ImportKey)).rejects.toThrow("No row of this file was accepted, so there is nothing to create.");
+    expect((await rows())[1]).toEqual(["Refused", [reason]]);
+    expect(await listingsIn(street)).toEqual([]);
+  });
+
   it("is for staff who hold Import listings, and for no one else", async () => {
     const without = (await createMember(admin, { firstName: "No", lastName: "Imports", email: `noimport-${run}@osmls.example`, memberId: `IM${run}-x`, role: "staff", officeKey: "", phone: "" })).member;
     await setCapabilities(admin, without.MemberKey, ["members", "offices", "settings", "compliance", "data", "staff"], "everything but imports");
