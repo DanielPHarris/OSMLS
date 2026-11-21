@@ -28,7 +28,8 @@ const PLAIN_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
 export function serverErrorLine(
   err: unknown,
-  request: { method: string },
+  // The request's headers and address are passed by Next.js and deliberately not read.
+  request: { method: string; headers?: unknown; path?: unknown },
   context: { routePath: string; routeType: string },
   now = new Date(),
 ): ServerErrorLine {
