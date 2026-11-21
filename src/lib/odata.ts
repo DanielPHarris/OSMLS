@@ -34,7 +34,7 @@ const field = (resource: ServedResource, name: string, use: string): ServedField
 };
 const stored = (resource: ServedResource, name: string, use: string): ServedField => {
   const found = field(resource, name, use);
-  if (found.derived) throw new ODataError(`"${name}" is worked out when a response is made and cannot be used in ${use}.`);
+  if (found.derived && !found.queryable) throw new ODataError(`"${name}" is worked out when a response is made and cannot be used in ${use}.`);
   return found;
 };
 
@@ -55,6 +55,21 @@ export function parseOrderBy(resource: ServedResource, value: string | null): Or
     }
     return { field: stored(resource, name, "$orderby"), descending: direction === "desc" };
   });
+}
+
+/** The resources to read along with each record. Only what the allowlist names for this resource can be expanded. */
+export function parseExpand(resource: ServedResource, value: string | null): NonNullable<ServedResource["expand"]>[] {
+  if (value == null || value.trim() === "") return [];
+  return [...new Set(value.split(",").map((n) => n.trim()))].map((name) => {
+    if (!resource.expand || resource.expand.name !== name) throw new ODataError(`${resource.name} has nothing called "${name}" to expand.`);
+    return resource.expand;
+  });
+}
+
+/** The page size a request asks the server not to exceed, from its Prefer header, or null. */
+export function preferredPageSize(prefer: string | null): number | null {
+  const match = /(?:^|[,;\s])odata\.maxpagesize=(\d{1,6})(?:$|[,;\s])/i.exec(prefer ?? "");
+  return match && Number(match[1]) > 0 ? Number(match[1]) : null;
 }
 
 /** A whole number at least `least`, or the fallback when the option was not given. */

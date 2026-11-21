@@ -39,7 +39,7 @@ test("staff add a data consumer, its token reads the feed over HTTP, and revokin
 
   const service = await outside.get("/api/reso/");
   expect(service.status()).toBe(200);
-  expect((await service.json()).value.map((r: { name: string }) => r.name)).toEqual(expect.arrayContaining(["Property", "Member", "Office", "Media"]));
+  expect((await service.json()).value.map((r: { name: string }) => r.name)).toEqual(["Property", "Member", "Office", "Media", "Field", "Lookup"]);
 
   const metadata = await outside.get("/api/reso/$metadata");
   expect(metadata.status()).toBe(200);
@@ -50,7 +50,9 @@ test("staff add a data consumer, its token reads the feed over HTTP, and revokin
   expect(xml).not.toContain("ShowingInstructions");
 
   // Pages of records, following the link the server gives.
-  const first = await outside.get("/api/reso/Property?$select=ListingKey,ListPrice,ModificationTimestamp&$top=20&$count=true&$orderby=ListPrice desc");
+  // The consumer asks for pages of twenty, so the server cuts each short and links to the next.
+  const paged = { headers: { Prefer: "odata.maxpagesize=20" } };
+  const first = await outside.get("/api/reso/Property?$select=ListingKey,ListPrice,ModificationTimestamp&$count=true&$orderby=ListPrice desc", paged);
   expect(first.status()).toBe(200);
   const firstPage = await first.json();
   expect(firstPage["@odata.count"]).toBeGreaterThan(40);
@@ -61,7 +63,7 @@ test("staff add a data consumer, its token reads the feed over HTTP, and revokin
   let next: string | undefined = firstPage["@odata.nextLink"];
   let lastPrice: number = firstPage.value.at(-1).ListPrice;
   while (next) {
-    const body = await (await outside.get(next)).json();
+    const body = await (await outside.get(next, paged)).json();
     for (const record of body.value) {
       expect(seen.has(record.ListingKey), "a record given twice").toBe(false);
       expect(record.ListPrice).toBeLessThanOrEqual(lastPrice);

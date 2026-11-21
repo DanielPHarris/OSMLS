@@ -1,5 +1,5 @@
-import { consumerFor, logRequest, metadataDocument, readResource, serviceDocument } from "@/lib/data-exchange";
-import { ODataError } from "@/lib/odata";
+import { consumerFor, logRequest, metadataDocument, overLimit, readResource, serviceDocument } from "@/lib/data-exchange";
+import { ODataError, preferredPageSize } from "@/lib/odata";
 
 /*
  * The data exchange feed: a read-only RESO Web API (OData) service for outside
@@ -18,6 +18,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   // Unknown, revoked and expired tokens are answered alike, and before anything about the request is looked at.
   if (!consumer) return failure(401, "Unauthorized", "A valid bearer token is required.", { "WWW-Authenticate": "Bearer" });
 
+  if (await overLimit(consumer)) return failure(429, "TooManyRequests", "Too many requests in the last minute. Try again shortly.", { "Retry-After": "60" });
+
   const url = new URL(request.url);
   const path = ((await params).path ?? []).map((part) => decodeURIComponent(part));
   const query = url.search.slice(1);
@@ -34,7 +36,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     if (path.length !== 1) throw new ODataError(`There is nothing at "${asked}".`, 404, "NotFound");
     // "Property" for a collection, "Property('key')" for one record.
     const one = /^([A-Za-z]+)\('([^']*)'\)$/.exec(path[0]);
-    const result = one ? await readResource(one[1], url.searchParams, one[2]) : await readResource(path[0], url.searchParams);
+    const maxPageSize = preferredPageSize(request.headers.get("prefer"));
+    const result = one ? await readResource(one[1], url.searchParams, one[2]) : await readResource(path[0], url.searchParams, undefined, { maxPageSize });
     if ("value" in result && Array.isArray(result.value)) {
       const page = result as import("@/lib/data-exchange").Page;
       await logRequest(consumer, asked, query, 200, page.value.length);

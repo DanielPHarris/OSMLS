@@ -7,8 +7,20 @@ import { ListingError } from "./listings";
 import { appUrl } from "./mail";
 import { getMarketTime, withOneSettingsVersion } from "./market-time";
 import { actingStaff, takeAuthorityTurn } from "./members";
-import { ODataError, parseCount, parseFilter, parseOrderBy, parseSelect, type Filter, type Literal } from "./odata";
-import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, SERVED_RESOURCES, servedResource, type ServedField, type ServedResource } from "./rules/data-exchange";
+import { ODataError, parseCount, parseExpand, parseFilter, parseOrderBy, parseSelect, type Filter, type Literal, type Order } from "./odata";
+import {
+  DEFAULT_PAGE_SIZE,
+  DESCRIPTION_CHANGED,
+  FIXED_LOOKUPS,
+  FOUND_LOOKUPS,
+  MAX_PAGE_SIZE,
+  MAX_REQUESTS_PER_MINUTE,
+  SERVED_RESOURCES,
+  servedResource,
+  type EdmType,
+  type ServedField,
+  type ServedResource,
+} from "./rules/data-exchange";
 
 /*
  * The data exchange feed: a read-only RESO Web API (OData) endpoint for outside
@@ -118,15 +130,57 @@ export async function consumerFor(authorization: string | null): Promise<DataCon
   return found ?? null;
 }
 
+/** Whether a data consumer has made as many requests in the last minute as it may. */
+export async function overLimit(consumer: DataConsumer): Promise<boolean> {
+  const [{ recent }] = await db
+    .select({ recent: sql<number>`count(*)::int` })
+    .from(dataRequest)
+    .where(and(eq(dataRequest.ConsumerKey, consumer.ConsumerKey), sql`${dataRequest.RequestTimestamp} > now() - interval '1 minute'`));
+  return recent >= MAX_REQUESTS_PER_MINUTE;
+}
+
 /** Records what a data consumer asked for and how many records it was given. */
 export const logRequest = (consumer: DataConsumer, resource: string, query: string, status: number, records: number) =>
   db.insert(dataRequest).values({ ConsumerKey: consumer.ConsumerKey, ResourceName: resource, Query: query.slice(0, 2000), Status: status, RecordCount: records });
 
 // ---- Reading records ----
 
+/*
+ * Every read is one SQL query over one relation, built from the allowlist:
+ *
+ * - a table, for records OSMLS stores;
+ * - a table joined to the days-on-market figures, when a query filters or
+ *   sorts on them (they are not stored, so they are worked out for every
+ *   listing first, by the one calculation the screens use);
+ * - a relation made from the allowlist itself, for Field and Lookup.
+ *
+ * Filtering, ordering, counting and paging are then the same for all three.
+ */
+
+const PG_TYPE: Record<EdmType, string> = { "Edm.String": "text", "Edm.Int32": "integer", "Edm.Decimal": "numeric", "Edm.Date": "date", "Edm.DateTimeOffset": "timestamptz" };
+
+/** A relation given to the database as one JSON value, with the columns named and typed from the allowlist. */
+const relationOf = (alias: string, columns: readonly { name: string; type: EdmType }[], rows: unknown[]): SQL =>
+  sql`jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) as ${sql.identifier(alias)}(${sql.join(
+    columns.map((c) => sql`${sql.identifier(c.name)} ${sql.raw(PG_TYPE[c.type])}`),
+    sql`, `,
+  )})`;
+
 const column = (f: ServedField) => sql.identifier(f.name);
 
-/** A stored field as the feed gives it: numbers as numbers, dates and times in ISO form, read in SQL so nothing depends on the driver. */
+/**
+ * A field as it is compared, sorted, and paged by. A time is taken to the
+ * millisecond, which is how it is served, so that a filter on a served value
+ * finds the record it came from; what is stored keeps its full precision.
+ * Text includes keys, so one expression serves every use.
+ */
+function comparableColumn(f: ServedField): SQL {
+  if (f.type === "Edm.DateTimeOffset") return sql`date_trunc('milliseconds', ${column(f)})`;
+  if (f.type === "Edm.String") return sql`${column(f)}::text`;
+  return sql`${column(f)}`;
+}
+
+/** A field as the feed gives it: numbers as numbers, dates and times in ISO form, read in SQL so nothing depends on the driver. */
 function output(f: ServedField): SQL {
   switch (f.type) {
     case "Edm.Decimal":
@@ -134,7 +188,7 @@ function output(f: ServedField): SQL {
     case "Edm.Date":
       return sql`${column(f)}::text`;
     case "Edm.DateTimeOffset":
-      return sql`to_char(${column(f)} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+      return sql`to_char(${comparableColumn(f)} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
     case "Edm.Int32":
       return sql`${column(f)}`;
     default:
@@ -142,11 +196,11 @@ function output(f: ServedField): SQL {
   }
 }
 
-function value(f: ServedField, v: Exclude<Literal, { kind: "null" }>): SQL {
-  if (f.type === "Edm.Date") return sql`${v.value}::date`;
-  if (f.type === "Edm.DateTimeOffset") return sql`${v.value}::timestamptz`;
-  if (f.type === "Edm.String") return sql`${v.value}::text`;
-  return sql`${v.value}::numeric`;
+function comparableValue(f: ServedField, v: string | number): SQL {
+  if (f.type === "Edm.Date") return sql`${v}::date`;
+  if (f.type === "Edm.DateTimeOffset") return sql`date_trunc('milliseconds', ${v}::timestamptz)`;
+  if (f.type === "Edm.String") return sql`${v}::text`;
+  return sql`${v}::numeric`;
 }
 
 function condition(filter: Filter): SQL {
@@ -155,23 +209,13 @@ function condition(filter: Filter): SQL {
   }
   if ("operand" in filter) return sql`(not coalesce(${condition(filter.operand)}, false))`;
   const { field, value: v } = filter;
-  // Compared as its own type; keys are stored as uuid and compared as text.
-  const left = field.type === "Edm.String" ? sql`${column(field)}::text` : column(field);
+  const left = comparableColumn(field);
   if (v.kind === "null") return filter.op === "eq" ? sql`${left} is null` : sql`${left} is not null`;
   const operator = { eq: sql`=`, ne: sql`<>`, gt: sql`>`, ge: sql`>=`, lt: sql`<`, le: sql`<=` }[filter.op];
-  return sql`${left} ${operator} ${value(field, v)}`;
+  return sql`${left} ${operator} ${comparableValue(field, (v as Exclude<Literal, { kind: "null" }>).value)}`;
 }
 
-/** A stored field as it is sorted and compared when paging. Text, keys included, so one expression serves both. */
-const sortable = (f: ServedField): SQL => (f.type === "Edm.String" ? sql`${column(f)}::text` : sql`${column(f)}`);
-const KEY_ORDER = (keyField: ServedField) => sql`${column(keyField)}::text collate "C"`;
-
-function comparable(f: ServedField, v: string): SQL {
-  if (f.type === "Edm.Date") return sql`${v}::date`;
-  if (f.type === "Edm.DateTimeOffset") return sql`${v}::timestamptz`;
-  if (f.type === "Edm.String") return sql`${v}::text`;
-  return sql`${v}::numeric`;
-}
+const keyOrder = (keyField: ServedField) => sql`${column(keyField)}::text collate "C"`;
 
 /**
  * Where the next page starts: after the last record of the page before, in the
@@ -179,19 +223,20 @@ function comparable(f: ServedField, v: string): SQL {
  * order fields, and its key) and not a count of records to skip, so a record
  * added or moved while a consumer is reading cannot make it repeat or miss one.
  */
-function after(order: readonly { field: ServedField; descending: boolean }[], keyField: ServedField, place: (string | null)[]): SQL {
-  const same = (i: number) => (place[i] === null ? sql`${sortable(order[i].field)} is null` : sql`${sortable(order[i].field)} = ${comparable(order[i].field, place[i]!)}`);
+function after(order: readonly Order[], keyField: ServedField, place: (string | null)[]): SQL {
+  const same = (i: number) =>
+    place[i] === null ? sql`${comparableColumn(order[i].field)} is null` : sql`${comparableColumn(order[i].field)} = ${comparableValue(order[i].field, place[i]!)}`;
   const beyond = (i: number): SQL => {
     const { field, descending } = order[i];
     const v = place[i];
     // Ascending puts empty values first; descending puts them last.
-    if (!descending) return v === null ? sql`${sortable(field)} is not null` : sql`${sortable(field)} > ${comparable(field, v)}`;
-    return v === null ? sql`false` : sql`(${sortable(field)} < ${comparable(field, v)} or ${sortable(field)} is null)`;
+    if (!descending) return v === null ? sql`${comparableColumn(field)} is not null` : sql`${comparableColumn(field)} > ${comparableValue(field, v)}`;
+    return v === null ? sql`false` : sql`(${comparableColumn(field)} < ${comparableValue(field, v)} or ${comparableColumn(field)} is null)`;
   };
   const alternatives: SQL[] = [];
   for (let i = 0; i <= order.length; i++) {
     const ties = Array.from({ length: i }, (_, j) => same(j));
-    const then = i === order.length ? sql`${KEY_ORDER(keyField)} > ${place[i]!}` : beyond(i);
+    const then = i === order.length ? sql`${keyOrder(keyField)} > ${place[i]!}` : beyond(i);
     alternatives.push(sql`(${sql.join([...ties, then], sql` and `)})`);
   }
   return sql`(${sql.join(alternatives, sql` or `)})`;
@@ -208,6 +253,57 @@ function decodePlace(token: string, length: number): (string | null)[] {
   throw new ODataError("$skiptoken is not one this service gave for this query.");
 }
 
+// ---- The two resources that describe the feed ----
+
+const spaced = (name: string) => name.replace(/([a-z])([A-Z])/g, "$1 $2");
+const described = SERVED_RESOURCES.filter((r) => !r.described);
+
+/** One record per served field of the resources that carry data. */
+const fieldRecords = () =>
+  described.flatMap((r) =>
+    r.fields.map((f) => ({ FieldKey: `${r.name}.${f.name}`, ResourceName: r.name, FieldName: f.name, DisplayName: spaced(f.name), ModificationTimestamp: DESCRIPTION_CHANGED })),
+  );
+
+const lookupKey = (name: string, value: string) => createHash("sha256").update(`${name}\n${value}`).digest("hex").slice(0, 32);
+
+/**
+ * One record per value of each lookup a served field holds. A fixed list is
+ * given whole, each value marked as the standard value it is. A lookup OSMLS
+ * does not fix is given as the values found in served records, and only
+ * those; such a value is called standard only where the allowlist gives a
+ * list to check it against, and it is on that list.
+ */
+async function lookupRecords() {
+  const fixed = Object.entries(FIXED_LOOKUPS).flatMap(([name, values]) =>
+    values.map((value) => ({ LookupKey: lookupKey(name, value), LookupName: name, LookupValue: value, StandardLookupValue: value, LegacyODataValue: null, ModificationTimestamp: DESCRIPTION_CHANGED })),
+  );
+  const found: typeof fixed = [];
+  for (const [name, { sources, standard }] of Object.entries(FOUND_LOOKUPS)) {
+    const values = new Map<string, string>();
+    for (const source of sources) {
+      const resource = servedResource(source.resource)!;
+      // Only records the feed serves are looked at: the same fixed condition every read of the resource carries.
+      const rows = (
+        await db.execute(sql`
+          select ${sql.identifier(source.field)}::text as value,
+            to_char(max(date_trunc('milliseconds', "ModificationTimestamp")) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as changed
+          from ${sql.identifier(resource.table)}
+          where ${resource.only ? sql.raw(`(${resource.only})`) : sql`true`} and ${sql.identifier(source.field)} is not null
+          group by 1`)
+      ).rows as { value: string; changed: string }[];
+      for (const row of rows) if (!values.has(row.value) || values.get(row.value)! < row.changed) values.set(row.value, row.changed);
+    }
+    for (const [value, changed] of values) {
+      // Standard only if it is on the list given for this lookup; otherwise a local value, with no standard value claimed.
+      const standardValue = standard?.includes(value) ? value : null;
+      found.push({ LookupKey: lookupKey(name, value), LookupName: name, LookupValue: value, StandardLookupValue: standardValue as string, LegacyODataValue: null, ModificationTimestamp: changed });
+    }
+  }
+  return [...fixed, ...found];
+}
+
+// ---- Answering a read ----
+
 export type Page = {
   context: string;
   count?: number;
@@ -215,12 +311,38 @@ export type Page = {
   nextLink?: string;
 };
 
-/** Fills in the fields that are worked out, for the records on one page. */
-async function derive(resource: ServedResource, wanted: readonly ServedField[], rows: Record<string, unknown>[]) {
-  const names = new Set(wanted.filter((f) => f.derived).map((f) => f.name));
+const contextFor = (resource: ServedResource, selected: readonly ServedField[], all: boolean, one = false) =>
+  `${serviceRoot()}/$metadata#${resource.name}${all ? "" : `(${selected.map((f) => f.name).join(",")})`}${one ? "/$entity" : ""}`;
+
+const mentions = (filter: Filter | null, test: (f: ServedField) => boolean): boolean =>
+  filter === null ? false : "left" in filter ? mentions(filter.left, test) || mentions(filter.right, test) : "operand" in filter ? mentions(filter.operand, test) : test(filter.field);
+
+/** The relation a read is made over, and which of its derived fields that relation already holds. */
+async function relationFor(resource: ServedResource, needsFigures: boolean, asOf: Date): Promise<{ from: SQL; holds: (f: ServedField) => boolean }> {
+  if (resource.described === "fields") return { from: relationOf(resource.table, resource.fields, fieldRecords()), holds: () => true };
+  if (resource.described === "lookups") return { from: relationOf(resource.table, resource.fields, await lookupRecords()), holds: () => true };
+  const table = sql.identifier(resource.table);
+  if (!needsFigures) return { from: sql`${table}`, holds: (f) => !f.derived };
+  // Filtering or sorting on the figures needs them for every served listing, not only for one page.
+  const keyField = resource.fields.find((f) => f.name === resource.key)!;
+  const keys = (
+    await db.execute(sql`select ${column(keyField)}::text as key from ${table} where ${resource.only ? sql.raw(`(${resource.only})`) : sql`true`}`)
+  ).rows.map((r) => String(r.key));
+  const marketTime = await getMarketTime(keys, { asOf });
+  const figures = keys.map((key) => ({ __listing: key, DaysOnMarket: marketTime.get(key)?.daysOnMarket ?? 0, CumulativeDaysOnMarket: marketTime.get(key)?.cumulativeDaysOnMarket ?? 0 }));
+  const columns = [{ name: "__listing", type: "Edm.String" as const }, ...resource.fields.filter((f) => f.derived && f.queryable)];
+  return {
+    from: sql`${table} join ${relationOf("__figures", columns, figures)} on "__figures"."__listing" = ${column(keyField)}::text`,
+    holds: (f) => !f.derived || !!f.queryable,
+  };
+}
+
+/** Fills in, for the records on one page, the derived fields the relation did not hold. */
+async function derive(resource: ServedResource, missing: readonly ServedField[], rows: Record<string, unknown>[], asOf: Date) {
+  const names = new Set(missing.map((f) => f.name));
   if (names.size === 0 || rows.length === 0) return;
   if (resource.name === "Property") {
-    const marketTime = await getMarketTime(rows.map((r) => String(r.__key)));
+    const marketTime = await getMarketTime(rows.map((r) => String(r.__key)), { asOf });
     for (const row of rows) {
       const found = marketTime.get(String(row.__key));
       if (names.has("DaysOnMarket")) row.DaysOnMarket = found?.daysOnMarket ?? 0;
@@ -230,77 +352,116 @@ async function derive(resource: ServedResource, wanted: readonly ServedField[], 
   if (resource.name === "Media" && names.has("MediaURL")) for (const row of rows) row.MediaURL = photoUrl(String(row.__key));
 }
 
-const contextFor = (resource: ServedResource, selected: readonly ServedField[], all: boolean, one = false) =>
-  `${serviceRoot()}/$metadata#${resource.name}${all ? "" : `(${selected.map((f) => f.name).join(",")})`}${one ? "/$entity" : ""}`;
+/** The records of another served resource that belong to the records on a page, held to that resource's own allowlist and condition. */
+async function expanded(expand: NonNullable<ServedResource["expand"]>, parentKeys: string[], asOf: Date): Promise<Map<string, Record<string, unknown>[]>> {
+  const resource = servedResource(expand.resource)!;
+  const out = new Map<string, Record<string, unknown>[]>();
+  if (parentKeys.length === 0) return out;
+  const keyField = resource.fields.find((f) => f.name === resource.key)!;
+  const on = resource.fields.find((f) => f.name === expand.on)!;
+  const by = resource.fields.find((f) => f.name === expand.orderBy)!;
+  const stored = resource.fields.filter((f) => !f.derived);
+  const rows = (
+    await db.execute(sql`
+      select ${column(keyField)}::text as "__key", ${column(on)}::text as "__parent", ${sql.join(stored.map((f) => sql`${output(f)} as ${sql.identifier(f.name)}`), sql`, `)}
+      from ${sql.identifier(resource.table)}
+      where ${resource.only ? sql.raw(`(${resource.only})`) : sql`true`} and ${column(on)}::text in (${sql.join(parentKeys.map((k) => sql`${k}`), sql`, `)})
+      order by ${column(by)}, ${keyOrder(keyField)}`)
+  ).rows as Record<string, unknown>[];
+  await derive(resource, resource.fields.filter((f) => f.derived), rows, asOf);
+  for (const row of rows) {
+    const shaped = Object.fromEntries(resource.fields.map((f) => [f.name, row[f.name] ?? null]));
+    out.set(String(row.__parent), [...(out.get(String(row.__parent)) ?? []), shaped]);
+  }
+  return out;
+}
+
+const OPTIONS = ["$select", "$filter", "$orderby", "$top", "$skip", "$skiptoken", "$count", "$expand", "$format"];
 
 /**
  * Answers one read of a served resource: a page of records, or one record when
  * `key` is given. Everything the request names is checked against the
  * allowlist first; an unknown resource, field or option is refused.
+ *
+ * $top is the most records the consumer wants. A page holds that many, or the
+ * server's own limit if that is fewer (the consumer may ask for a lower limit
+ * with `maxPageSize`), and only a page the server cut short carries a link to
+ * the next.
  */
-export async function readResource(resourceName: string, params: URLSearchParams, key?: string): Promise<Page | Record<string, unknown>> {
+export async function readResource(resourceName: string, params: URLSearchParams, key?: string, options: { maxPageSize?: number | null } = {}): Promise<Page | Record<string, unknown>> {
   const resource = servedResource(resourceName);
   if (!resource) throw new ODataError(`There is no resource "${resourceName}".`, 404, "NotFound");
-  for (const name of params.keys()) {
-    if (!["$select", "$filter", "$orderby", "$top", "$skip", "$skiptoken", "$count", "$format"].includes(name)) throw new ODataError(`The query option "${name}" is not supported.`);
-  }
+  for (const name of params.keys()) if (!OPTIONS.includes(name)) throw new ODataError(`The query option "${name}" is not supported.`);
   const selected = parseSelect(resource, params.get("$select"));
   const all = !params.get("$select") || params.get("$select")!.trim() === "*";
+  const expands = parseExpand(resource, params.get("$expand"));
   const filter = key === undefined ? parseFilter(resource, params.get("$filter")) : null;
   const order = key === undefined ? parseOrderBy(resource, params.get("$orderby")) : [];
-  const top = Math.min(parseCount("$top", params.get("$top"), DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+  const wanted = params.get("$top") === null ? null : parseCount("$top", params.get("$top"), 0);
   const skip = parseCount("$skip", params.get("$skip"), 0);
   const token = key === undefined ? params.get("$skiptoken") : null;
   if (token !== null && params.get("$skip") !== null) throw new ODataError("Use $skip or $skiptoken, not both.");
-  const wantsCount = params.get("$count") === "true";
   if (params.get("$count") && !["true", "false"].includes(params.get("$count")!)) throw new ODataError("$count must be true or false.");
+  const wantsCount = params.get("$count") === "true";
+  const limit = Math.min(options.maxPageSize ?? (wanted === null ? DEFAULT_PAGE_SIZE : MAX_PAGE_SIZE), MAX_PAGE_SIZE);
+  const pageSize = wanted === null ? limit : Math.min(wanted, limit);
 
   const keyField = resource.fields.find((f) => f.name === resource.key)!;
-  const table = sql.identifier(resource.table);
-  // What the result is, without regard to which page of it is wanted.
-  const matching = sql.join(
-    [
-      resource.only ? sql.raw(`(${resource.only})`) : sql`true`,
-      filter ? condition(filter) : sql`true`,
-      key === undefined ? sql`true` : isKey(key) ? sql`${column(keyField)} = ${key}::uuid` : sql`false`,
-    ],
-    sql` and `,
-  );
-  const where = token === null ? matching : sql`${matching} and ${after(order, keyField, decodePlace(token, order.length + 1))}`;
-  const columns = sql.join(
-    [
-      sql`${column(keyField)}::text as "__key"`,
-      // Each record's place in the order, for the link to the page after it.
-      ...order.map((o, i) => sql`${column(o.field)}::text as ${sql.identifier(`__place${i}`)}`),
-      ...selected.filter((f) => !f.derived).map((f) => sql`${output(f)} as ${sql.identifier(f.name)}`),
-    ],
-    sql`, `,
-  );
-  // Always ending in the key, so no two records share a place and the order never varies.
-  const ordering = sql.join(
-    [...order.map((o) => (o.descending ? sql`${sortable(o.field)} desc nulls last` : sql`${sortable(o.field)} asc nulls first`)), sql`${KEY_ORDER(keyField)} asc`],
-    sql`, `,
-  );
+  const isFigure = (f: ServedField) => !!f.derived && !!f.queryable;
+  const needsFigures = mentions(filter, isFigure) || order.some((o) => isFigure(o.field));
 
   return withOneSettingsVersion(async () => {
+    // One moment for the whole answer, so every figure in it is as of the same time.
+    const asOf = new Date();
+    const { from, holds } = await relationFor(resource, needsFigures, asOf);
+    // What the result is, without regard to which page of it is wanted.
+    const matching = sql.join(
+      [
+        resource.only && !resource.described ? sql.raw(`(${resource.only})`) : sql`true`,
+        filter ? condition(filter) : sql`true`,
+        key === undefined ? sql`true` : sql`${column(keyField)}::text = ${key}`,
+      ],
+      sql` and `,
+    );
+    const where = token === null ? matching : sql`${matching} and ${after(order, keyField, decodePlace(token, order.length + 1))}`;
+    const columns = sql.join(
+      [
+        sql`${column(keyField)}::text as "__key"`,
+        // Each record's place in the order, for the link to the page after it.
+        ...order.map((o, i) => sql`${comparableColumn(o.field)}::text as ${sql.identifier(`__place${i}`)}`),
+        ...selected.filter(holds).map((f) => sql`${output(f)} as ${sql.identifier(f.name)}`),
+      ],
+      sql`, `,
+    );
+    // Always ending in the key, so no two records share a place and the order never varies.
+    const ordering = sql.join(
+      [...order.map((o) => (o.descending ? sql`${comparableColumn(o.field)} desc nulls last` : sql`${comparableColumn(o.field)} asc nulls first`)), sql`${keyOrder(keyField)} asc`],
+      sql`, `,
+    );
     // One more than the page, to know whether there is another.
-    const found = (await db.execute(sql`select ${columns} from ${table} where ${where} order by ${ordering} limit ${top + 1} offset ${skip}`)).rows as Record<string, unknown>[];
-    const rows = found.slice(0, top);
-    await derive(resource, selected, rows);
-    const shaped = rows.map((row) => Object.fromEntries(selected.map((f) => [f.name, row[f.name] ?? null])));
+    const found = (await db.execute(sql`select ${columns} from ${from} where ${where} order by ${ordering} limit ${pageSize + 1} offset ${skip}`)).rows as Record<string, unknown>[];
+    const rows = found.slice(0, pageSize);
+    await derive(resource, selected.filter((f) => !holds(f)), rows, asOf);
+    const shaped = rows.map((row) => Object.fromEntries(selected.map((f) => [f.name, row[f.name] ?? null])) as Record<string, unknown>);
+    for (const expand of expands) {
+      const children = await expanded(expand, rows.map((r) => String(r.__key)), asOf);
+      rows.forEach((row, i) => (shaped[i][expand.name] = children.get(String(row.__key)) ?? []));
+    }
     if (key !== undefined) {
       if (shaped.length === 0) throw new ODataError(`There is no ${resource.name} with that key.`, 404, "NotFound");
       return { "@odata.context": contextFor(resource, selected, all, true), ...shaped[0] };
     }
     const page: Page = { context: contextFor(resource, selected, all), value: shaped };
     // The count is of the whole result, whichever page this is.
-    if (wantsCount) page.count = Number((await db.execute(sql`select count(*)::int as n from ${table} where ${matching}`)).rows[0].n);
-    if (found.length > top && rows.length > 0) {
+    if (wantsCount) page.count = Number((await db.execute(sql`select count(*)::int as n from ${from} where ${matching}`)).rows[0].n);
+    const stillWanted = wanted === null ? null : wanted - rows.length;
+    if (found.length > pageSize && rows.length > 0 && (stillWanted === null || stillWanted > 0)) {
       const last = rows[rows.length - 1];
       const next = new URLSearchParams(params);
       next.delete("$skip");
+      next.delete("$top");
+      if (stillWanted !== null) next.set("$top", String(stillWanted));
       next.set("$skiptoken", encodePlace([...order.map((_, i) => (last[`__place${i}`] as string | null) ?? null), String(last.__key)]));
-      next.set("$top", String(top));
       page.nextLink = `${serviceRoot()}/${resource.name}?${next.toString().replace(/%24/g, "$")}`;
     }
     return page;
@@ -326,13 +487,19 @@ export function metadataDocument(): string {
   const types = SERVED_RESOURCES.map((r) => {
     const properties = r.fields
       .map((f) => {
-        const facets = f.type === "Edm.DateTimeOffset" ? ` Precision="27"` : f.type === "Edm.Decimal" ? ` Scale="variable"` : "";
-        return `        <Property Name="${xml(f.name)}" Type="${f.type}"${f.name === r.key ? ` Nullable="false"` : ""}${facets}/>`;
+        const facets = f.type === "Edm.DateTimeOffset" ? ` Precision="27"` : "";
+        const open = `        <Property Name="${xml(f.name)}" Type="${f.type}"${f.name === r.key ? ` Nullable="false"` : ""}${facets}`;
+        // A field that holds one of a list of values says which list, so its values can be read from the Lookup resource.
+        return f.lookup ? `${open}>\n          <Annotation Term="RESO.OData.Metadata.LookupName" String="${xml(f.lookup)}"/>\n        </Property>` : `${open}/>`;
       })
       .join("\n");
-    return `      <EntityType Name="${xml(r.name)}">\n        <Key><PropertyRef Name="${xml(r.key)}"/></Key>\n${properties}\n      </EntityType>`;
+    const navigation = r.expand ? `\n        <NavigationProperty Name="${xml(r.expand.name)}" Type="Collection(org.reso.metadata.${xml(r.expand.resource)})"/>` : "";
+    return `      <EntityType Name="${xml(r.name)}">\n        <Key><PropertyRef Name="${xml(r.key)}"/></Key>\n${properties}${navigation}\n      </EntityType>`;
   }).join("\n");
-  const sets = SERVED_RESOURCES.map((r) => `        <EntitySet Name="${xml(r.name)}" EntityType="org.reso.metadata.${xml(r.name)}"/>`).join("\n");
+  const sets = SERVED_RESOURCES.map((r) => {
+    const open = `        <EntitySet Name="${xml(r.name)}" EntityType="org.reso.metadata.${xml(r.name)}"`;
+    return r.expand ? `${open}>\n          <NavigationPropertyBinding Path="${xml(r.expand.name)}" Target="${xml(r.expand.resource)}"/>\n        </EntitySet>` : `${open}/>`;
+  }).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
   <edmx:DataServices>
