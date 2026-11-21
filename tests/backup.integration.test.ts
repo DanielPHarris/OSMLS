@@ -395,6 +395,30 @@ describe("a backup made by an earlier version", () => {
 });
 
 describe("a media folder that two databases use", () => {
+  it("is given to exactly one of two databases that claim it at the same moment", async () => {
+    const one = `osmls_drill_claim_one_${run}`;
+    const two = `osmls_drill_claim_two_${run}`;
+    for (const name of [one, two]) await admin.query(`create database ${name}`);
+    try {
+      for (let round = 0; round < 20; round++) {
+        const folder = path.join(work, `claimed-at-once-${round}`);
+        const claims = await Promise.allSettled([one, two].map((name) => claimMediaFolder({ databaseUrl: urlFor(name), mediaDir: folder })));
+        const won = claims.flatMap((c) => (c.status === "fulfilled" ? [c.value] : []));
+        const lost = claims.flatMap((c) => (c.status === "rejected" ? [c.reason] : []));
+        expect(won, `round ${round}`).toHaveLength(1);
+        expect(won[0].already).toBe(false);
+        expect(String(lost[0])).toContain("This media folder has been given to another database.");
+        // The folder names the one that won, and the other cannot take it afterwards either.
+        expect(await mediaFolderOwner(folder)).toBe(won[0].owner);
+        const loser = claims[0].status === "rejected" ? one : two;
+        await expect(claimMediaFolder({ databaseUrl: urlFor(loser), mediaDir: folder })).rejects.toThrow("This media folder has been given to another database.");
+        expect(await mediaFolderOwner(folder)).toBe(won[0].owner);
+      }
+    } finally {
+      for (const name of [one, two]) await admin.query(`drop database if exists ${name} with (force)`);
+    }
+  }, 120_000);
+
   it("is never swept, so neither loses the other's files", async () => {
     const one = `osmls_drill_shared_one_${run}`;
     const two = `osmls_drill_shared_two_${run}`;

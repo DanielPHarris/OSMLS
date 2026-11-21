@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { copyFile, link, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Client } from "pg";
 
@@ -89,6 +89,29 @@ const installationIdOf = async (client: Client) => (await client.query(`select $
 export const mediaFolderOwner = (mediaDir: string): Promise<string | null> => readFile(path.join(mediaDir, CLAIM_FILE), "utf8").then((v) => v.trim() || null, () => null);
 
 /**
+ * Writes the claim, unless the folder already has one, and says whose it then
+ * is. The claim is written whole under another name and then linked into
+ * place, which the filesystem refuses if a claim is already there. So of two
+ * databases claiming at the same moment exactly one succeeds, a claim is never
+ * overwritten, and no one ever reads a half-written one.
+ */
+async function claimFor(mediaDir: string, id: string): Promise<{ owner: string | null; already: boolean }> {
+  await mkdir(mediaDir, { recursive: true });
+  const claim = path.join(mediaDir, CLAIM_FILE);
+  const draft = `${claim}.${randomBytes(6).toString("hex")}`;
+  await writeFile(draft, `${id}\n`);
+  try {
+    await link(draft, claim);
+    return { owner: id, already: false };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return { owner: await mediaFolderOwner(mediaDir), already: true };
+  } finally {
+    await unlink(draft).catch(() => {});
+  }
+}
+
+/**
  * Gives a media folder to a database, so that its backup run may delete files
  * in it that no record refers to. Only for a folder that database alone uses.
  * A folder already given to another database is not taken from it.
@@ -98,13 +121,9 @@ export async function claimMediaFolder(target: Pick<BackupTarget, "databaseUrl" 
   await client.connect();
   try {
     const id = await installationIdOf(client);
-    const owner = await mediaFolderOwner(target.mediaDir);
-    if (owner && owner !== id) throw new BackupError("This media folder has been given to another database. It is not taken from it.");
-    if (!owner) {
-      await mkdir(target.mediaDir, { recursive: true });
-      await writeFile(path.join(target.mediaDir, CLAIM_FILE), `${id}\n`);
-    }
-    return { owner: id, already: !!owner };
+    const { owner, already } = await claimFor(target.mediaDir, id);
+    if (owner !== id) throw new BackupError("This media folder has been given to another database. It is not taken from it.");
+    return { owner: id, already };
   } finally {
     await client.end().catch(() => {});
   }
@@ -397,7 +416,8 @@ export async function restoreBackup(dir: string, target: RestoreTarget, options:
     await mkdir(path.join(target.mediaDir, "documents"), { recursive: true });
     for (const file of manifest.files) await copyFile(path.join(dir, "files", file.path), path.join(target.mediaDir, file.path));
     // The folder was empty and now holds exactly this database's files: it is this database's.
-    await writeFile(path.join(target.mediaDir, CLAIM_FILE), `${await installationIdOf(client)}\n`);
+    const id = await installationIdOf(client);
+    if ((await claimFor(target.mediaDir, id)).owner !== id) throw new BackupError("This media folder has been given to another database. It is not taken from it.");
 
     // What was restored is checked against what was saved, record for record and file for file.
     const counts = await tableCounts(client);
