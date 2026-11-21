@@ -50,6 +50,12 @@ async function mediaWritable(dir: string): Promise<boolean> {
   }
 }
 
+const schemaAsExpected = async (client: { query: (text: string) => Promise<{ rows: { hash: string }[] }> }, folder?: string): Promise<boolean> => {
+  const applied = (await client.query(`select hash from drizzle.__drizzle_migrations order by id`)).rows.map((r) => r.hash);
+  const known = await knownMigrations(folder);
+  return applied.length === known.length && applied.every((hash, i) => hash === known[i]);
+};
+
 /**
  * Whether the application can serve: the database answers, its schema is the
  * one this version expects, and the media folder can be written to. Backups
@@ -67,9 +73,7 @@ export async function readiness(options: { databaseUrl?: string; mediaDir?: stri
     return { database: false, schema: false, media };
   }
   try {
-    const applied = (await client.query(`select hash from drizzle.__drizzle_migrations order by id`)).rows.map((r) => r.hash as string);
-    const known = await knownMigrations(options.migrationsFolder);
-    return { database: true, schema: applied.length === known.length && applied.every((hash, i) => hash === known[i]), media };
+    return { database: true, schema: await schemaAsExpected(client, options.migrationsFolder), media };
   } catch {
     return { database: true, schema: false, media };
   } finally {
@@ -201,7 +205,7 @@ async function settleConditions(verdicts: Partial<Record<Condition, Verdict>>, n
 
 // ---- The scheduled command ----
 
-export type ScheduledTask = { name: string; run: (now: Date) => Promise<{ detail: string; alerts?: { sent: number; failed: number } }> };
+export type ScheduledTask = { name: string; run: (now: Date, send: Send) => Promise<{ detail: string; alerts?: { sent: number; failed: number } }> };
 
 // An alert send that did not end in the mail server accepting it, or an alert that could not be prepared.
 const ALERT_FAILURES = ["refused", "uncertain", "paused", "error"] as const;
@@ -209,8 +213,8 @@ const ALERT_FAILURES = ["refused", "uncertain", "paused", "error"] as const;
 export const SCHEDULED_TASKS: ScheduledTask[] = [
   {
     name: "Send alerts",
-    run: async (now) => {
-      const { busy, outcomes } = await sendDueAlerts({ now });
+    run: async (now, send) => {
+      const { busy, outcomes } = await sendDueAlerts({ now, send });
       if (busy) throw new Error("Another alert run was in progress.");
       const failed = ALERT_FAILURES.reduce((n, o) => n + (outcomes[o] ?? 0), 0);
       return { detail: JSON.stringify(outcomes), alerts: { sent: outcomes.sent ?? 0, failed } };
@@ -229,6 +233,14 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
   },
 ];
 
+/** Why the scheduled command did nothing at all: it could not safely start, so it recorded and reported nothing. */
+export class ScheduledRunRefused extends Error {
+  constructor(public reason: "database-unavailable" | "schema-version") {
+    super(reason === "schema-version" ? "The database's schema is not the version this application expects." : "The database is unavailable.");
+    this.name = "ScheduledRunRefused";
+  }
+}
+
 export type ScheduledRun = { outcome: JobRun["Outcome"]; tasks: RunTask[]; reports: { sent: number; unsent: number } };
 
 /**
@@ -237,14 +249,21 @@ export type ScheduledRun = { outcome: JobRun["Outcome"]; tasks: RunTask[]; repor
  * worked out and reported. Only one run proceeds at a time. A second started
  * meanwhile does nothing, and is recorded as skipped, not as a run.
  *
- * It needs the database for all of this. If the database is unavailable it
- * throws before anything is sent, and the caller logs that and exits.
+ * It needs the database for all of this, at the schema this version expects.
+ * If the database is unavailable, or its schema is another version's, it
+ * refuses before any task runs: nothing is changed, recorded or sent, and the
+ * caller logs that and exits. An email cannot be promised for either, since
+ * what has already been reported is itself recorded in that database.
  */
-export async function runScheduled(options: { now?: Date; send?: Send; tasks?: ScheduledTask[]; mediaDir?: string } = {}): Promise<ScheduledRun> {
+export async function runScheduled(options: { now?: Date; send?: Send; tasks?: ScheduledTask[]; mediaDir?: string; migrationsFolder?: string } = {}): Promise<ScheduledRun> {
   const { now = new Date(), send = sendMail, tasks = SCHEDULED_TASKS } = options;
   // Held on one connection for the whole run, and gone with it if the process dies.
-  const holder = await pool.connect();
+  const holder = await pool.connect().catch(() => {
+    throw new ScheduledRunRefused("database-unavailable");
+  });
   try {
+    const expected = await schemaAsExpected(holder, options.migrationsFolder).catch(() => false);
+    if (!expected) throw new ScheduledRunRefused("schema-version");
     const held = (await holder.query(`select pg_try_advisory_lock(hashtext('osmls:scheduled:run')) as held`)).rows[0].held as boolean;
     if (!held) {
       await record("scheduled", now, now, "Skipped", []);
@@ -252,24 +271,27 @@ export async function runScheduled(options: { now?: Date; send?: Send; tasks?: S
     }
     try {
       const done: RunTask[] = [];
+      // Tasks that did not finish. Alerts that finished with some unsent are "alerts failing" instead.
+      const broke: string[] = [];
       let alerts: { sent: number; failed: number } | undefined;
       for (const task of tasks) {
         try {
-          const result = await task.run(now);
-          done.push({ name: task.name, outcome: "Succeeded", detail: result.detail });
+          const result = await task.run(now, send);
           alerts = result.alerts ?? alerts;
+          // Alerts that were not sent make the task, and so the run, a failed one. What was counted is kept.
+          done.push({ name: task.name, outcome: result.alerts && result.alerts.failed > 0 ? "Failed" : "Succeeded", detail: result.detail });
         } catch (err) {
           console.error(`Scheduled task "${task.name}" failed:`, err);
           done.push({ name: task.name, outcome: "Failed", detail: kindOf(err) });
+          broke.push(task.name);
         }
       }
-      const failed = done.filter((t) => t.outcome === "Failed");
-      const outcome = failed.length ? "Failed" : "Succeeded";
+      const outcome = done.some((t) => t.outcome === "Failed") ? "Failed" : "Succeeded";
       await record("scheduled", now, options.now ? now : new Date(), outcome, done);
 
       const verdicts: Partial<Record<Condition, Verdict>> = {
         ...(await backupVerdicts(now)),
-        "scheduled-run-failed": failed.length ? { holds: true, detail: `Failed: ${failed.map((t) => t.name).join(", ")}.` } : { holds: false },
+        "scheduled-run-failed": broke.length ? { holds: true, detail: `Did not finish: ${broke.join(", ")}.` } : { holds: false },
         // A run that sent nothing says nothing about whether mail works.
         "alerts-failing": !alerts ? "unknown" : alerts.failed > 0 ? { holds: true, detail: `${alerts.failed} alert emails were not sent or may not have been.` } : alerts.sent > 0 ? { holds: false } : "unknown",
         "media-not-writable": (await mediaWritable(options.mediaDir ?? mediaDir())) ? { holds: false } : { holds: true, detail: "Photos and documents cannot be stored." },
