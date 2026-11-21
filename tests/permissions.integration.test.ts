@@ -11,6 +11,7 @@ import { db, pool } from "../src/db";
 import { member, office, property, verification, type Member } from "../src/db/schema";
 import { closeFlag, getRelistingLink, listFlags, raiseFlag, setRelistingLink } from "../src/lib/compliance";
 import { createDataConsumer, listDataConsumers, revokeDataConsumer } from "../src/lib/data-exchange";
+import { commitImport, getImport, listImports, previewImport } from "../src/lib/imports";
 import { CAPABILITIES, type Capability } from "../src/lib/lookups";
 import {
   changeMemberEmail,
@@ -61,6 +62,14 @@ const settingsInput = async (changes: Record<string, unknown> = {}) => {
   return { version, values: { ...now, ...changes } };
 };
 const refused = (work: Promise<unknown>) => expect(work).rejects.toThrow("Not found.");
+/** A one-row file for a property of its own, listed by a seeded agent. */
+const importFile = () => {
+  const n = ++serial;
+  return [
+    "SourceListingId,ListAgentMlsId,StandardStatus,PropertyType,ListPrice,ListingContractDate,StreetNumber,StreetName,City,StateOrProvince,PostalCode,BedroomsTotal,BathroomsTotalInteger",
+    `PROBE-${run}-${n},AG1001,Active,Residential,400000,2026-01-01,${n},Probe Rd ${run},Testville,WA,98982,3,2`,
+  ].join("\n");
+};
 
 beforeAll(async () => {
   delete process.env.SMTP_URL;
@@ -117,6 +126,10 @@ const probes: Probe[] = [
   { name: "list data consumers", needs: "data", attempt: (as) => found(listDataConsumers(as)) },
   { name: "add a data consumer", needs: "data", attempt: (as) => createDataConsumer(as, { feed: "full", name: `Probe ${run}-${++serial}` }) },
   { name: "revoke a data consumer", needs: "data", attempt: async (as) => revokeDataConsumer(as, (await createDataConsumer(admin, { feed: "full", name: `Probe ${run}-${++serial}` })).consumer.ConsumerKey) },
+  { name: "list imports", needs: "imports", attempt: (as) => found(listImports(as)) },
+  { name: "upload a file to import", needs: "imports", attempt: (as) => previewImport(as, { fileName: "probe.csv", sourceName: `Probe ${run}`, text: importFile() }) },
+  { name: "open an import", needs: "imports", attempt: async (as) => found(getImport(as, (await previewImport(admin, { fileName: "probe.csv", sourceName: `Probe ${run}`, text: importFile() })).ImportKey)) },
+  { name: "commit an import", needs: "imports", attempt: async (as) => commitImport(as, (await previewImport(admin, { fileName: "probe.csv", sourceName: `Probe ${run}`, text: importFile() })).ImportKey) },
   { name: "open the settings", needs: "settings", attempt: (as) => found(getSettingsForAdmin(as)) },
   { name: "read the settings record", needs: "settings", attempt: (as) => found(getSettingsHistory(as)) },
   // Saving the values already in force stores nothing, but is refused all the same without the capability.
@@ -158,7 +171,7 @@ describe("what each capability allows", () => {
     await setCapabilities(admin, holder.MemberKey, [], "revoked");
     // `holder` still says it holds everything, as a page loaded before the revocation would.
     expect(holder.OsmlsCapabilities).toEqual([...CAPABILITIES]);
-    for (const probe of probes.filter((p) => p.name.match(/^(add|edit|change|close|revoke|send|suspend|move|make|grant|put|deactivate|save)/)))
+    for (const probe of probes.filter((p) => p.name.match(/^(add|edit|change|close|commit|upload|revoke|send|suspend|move|make|grant|put|deactivate|save)/)))
       await expect(probe.attempt(holder), probe.name).rejects.toThrow("Not found.");
   });
 });

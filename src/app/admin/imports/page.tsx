@@ -30,7 +30,8 @@ export default async function ImportsPage() {
         </h2>
         <p className="text-sm text-muted">
           Nothing is created when you upload. You are shown what each row would do, and you then choose whether to
-          commit. A preview that is not committed is deleted after {IMPORT_PREVIEW_HOURS} hours.
+          commit. A preview that is not committed can no longer be opened or committed after {IMPORT_PREVIEW_HOURS} hours,
+          and what it held is deleted at the next scheduled clean-up.
         </p>
         <ActionForm action={previewImportAction} className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">

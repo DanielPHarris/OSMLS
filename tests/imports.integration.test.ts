@@ -1,17 +1,20 @@
 /*
  * Importing new listings from a file, against the test database (issue #35).
- * This is the first proof; the fuller set comes with the rest of the slice.
  */
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, pool } from "../src/db";
-import { historyTransactional, listingImport, listingImportRow, member, property, type Member } from "../src/db/schema";
-import { commitImport, getImport, listImports, parseCsv, previewImport } from "../src/lib/imports";
+import { historyTransactional, listingImport, listingImportRow, member, property, savedSearch, type Member } from "../src/db/schema";
+import { getActivity } from "../src/lib/activity";
+import { cleanUpImports, commitImport, getImport, listImports, parseCsv, previewImport } from "../src/lib/imports";
 import { listingInputSchema } from "../src/lib/listing-input";
-import { searchListings } from "../src/lib/listings";
+import { ListingError, createListing, propertyTurnKeys, searchListings, updateListing, validatedNewListing } from "../src/lib/listings";
 import { createMember, setCapabilities, setMemberStatus } from "../src/lib/members";
-import { IMPORT_COLUMNS, LISTING_COLUMNS } from "../src/lib/rules/imports";
+import { createOffice, setOfficeStatus } from "../src/lib/offices";
+import { IMPORT_COLUMNS, IMPORT_PREVIEW_HOURS, LISTING_COLUMNS, MAX_IMPORT_BYTES, MAX_IMPORT_ROWS } from "../src/lib/rules/imports";
+import { createSavedSearch } from "../src/lib/saved-work";
 import { DEFAULT_CRITERIA, criteriaToFilters } from "../src/lib/search-criteria";
+import { AUTHORITY_TURN, overlapping } from "./overlap";
 
 const run = Date.now();
 const CITY = `Imported${run}`;
@@ -165,3 +168,231 @@ describe("the first proof of importing", () => {
     expect((await db.select().from(listingImport).where(eq(listingImport.ImportKey, preview.ImportKey)))[0].State).toBe("Previewed");
   });
 });
+
+describe("a row is checked exactly as a listing entered by hand", () => {
+  it("gives the same message for the same mistake, by either route", async () => {
+    const header = [...IMPORT_COLUMNS];
+    const good = { ...row(), UnitNumber: "", LivingArea: "1500", LotSizeAcres: "0.25", YearBuilt: "1990" } as Record<string, string>;
+    const mistakes: Record<string, string>[] = [
+      { ListPrice: "-5" }, { ListPrice: "" }, { BedroomsTotal: "many" }, { BathroomsTotalInteger: "-1" }, { PostalCode: "abc" }, { StateOrProvince: "Washington" },
+      { ListingContractDate: "2026-02-31" }, { StreetName: "" }, { City: "" }, { PropertyType: "Castle" }, { StandardStatus: "Sold" }, { StandardStatus: "Pending" },
+      { YearBuilt: "1200" }, { Latitude: "47.6" }, { Latitude: "95", Longitude: "-122" }, { ClosePrice: "400000" }, { LivingArea: "big" }, { LockBoxType: "Vault" },
+      { ListPrice: "-5", PostalCode: "abc", StandardStatus: "Closed" },
+    ];
+    const text = [header.join(","), ...mistakes.map((m) => header.map((h) => cell(({ ...good, SourceListingId: `PAR-${run}-${++serial}`, ...m } as Record<string, string>)[h] ?? "")).join(","))].join("\n");
+    const preview = await previewImport(admin, { fileName: "parity.csv", sourceName: `Parity ${run}`, text });
+    const view = (await getImport(admin, preview.ImportKey))!;
+    for (const [i, mistake] of mistakes.entries()) {
+      // The same fields, typed into the entry form by the agent.
+      const byHand = await createListing(agent, { ...good, ...mistake }).then(() => null, (err: ListingError) => err.fieldErrors);
+      expect(byHand, JSON.stringify(mistake)).not.toBeNull();
+      expect(view.rows[i].Outcome, JSON.stringify(mistake)).toBe("Refused");
+      expect([...view.rows[i].Reasons].sort(), JSON.stringify(mistake)).toEqual(Object.entries(byHand!).map(([field, message]) => `${field}: ${message}`).sort());
+    }
+    // And what the form accepts, an import accepts: a Coming Soon listing, not yet on the market.
+    const soon = row({ StandardStatus: "Coming Soon", StreetName: `Parity Rd ${run}` });
+    const accepted = await upload([soon]);
+    expect(await commitImport(admin, accepted.ImportKey)).toEqual({ created: 1, stale: false });
+    expect((await listingsIn(`Parity Rd ${run}`))[0]).toMatchObject({ StandardStatus: "Coming Soon", OnMarketDate: null });
+  });
+
+  it("refuses a row whose agent is unknown, is MLS staff, is suspended, or is in an inactive office, and a row that is not whole", async () => {
+    const suspended = await newAgent();
+    await setMemberStatus(admin, suspended.MemberKey, "Inactive", "test");
+    const closedOffice = await createOffice(admin, { name: `Import Office ${run}`, officeId: `IO${run}`, phone: "", mainOfficeKey: "" });
+    const stranded = (await createMember(admin, { firstName: "Stranded", lastName: `Agent${run}`, email: `stranded-${run}@osmls.example`, memberId: `IM${run}-s`, role: "agent", officeKey: closedOffice.OfficeKey, phone: "" })).member;
+    await setMemberStatus(admin, stranded.MemberKey, "Inactive", "test");
+    await setOfficeStatus(admin, closedOffice.OfficeKey, "Inactive", "test");
+    await db.update(member).set({ MemberStatus: "Active" }).where(eq(member.MemberKey, stranded.MemberKey));
+    const text = `${csv([row({ ListAgentMlsId: "NOBODY" }), row({ ListAgentMlsId: "ST0001" }), row({ ListAgentMlsId: suspended.MemberMlsId }), row({ ListAgentMlsId: stranded.MemberMlsId }), row({ ListAgentMlsId: "" }), row({ SourceListingId: "" })])}\r\nonly,three,cells`;
+    const view = (await getImport(admin, (await previewImport(admin, { fileName: "agents.csv", sourceName: `Source ${run}`, text })).ImportKey))!;
+    expect(view.rows.map((r) => r.Outcome)).toEqual(Array(7).fill("Refused"));
+    expect(view.rows.map((r) => r.Reasons[0])).toEqual([
+      'ListAgentMlsId: No agent has the member ID "NOBODY".',
+      'ListAgentMlsId: No agent has the member ID "ST0001".',
+      expect.stringMatching(/^ListAgentMlsId: Import Agent\d+ is suspended\.$/),
+      expect.stringMatching(/^ListAgentMlsId: Stranded Agent\d+'s office is inactive\.$/),
+      "ListAgentMlsId: The listing agent's member ID is required.",
+      "SourceListingId: The listing's identifier in the source system is required.",
+      `The row has 3 values and the header has ${HEADER.length} columns.`,
+    ]);
+  });
+});
+
+describe("a file that cannot be read as an import is refused whole", () => {
+  it("names what is wrong and stores nothing", async () => {
+    const before = (await db.select().from(listingImport)).length;
+    const good = csv([row()]);
+    const withHeader = (header: string) => [header, good.split("\r\n")[1]].join("\r\n");
+    const cases: [string, RegExp][] = [
+      [withHeader(`${HEADER.join(",")},OriginalListPrice`), /a column an import does not take: "OriginalListPrice"/],
+      [withHeader(`${HEADER.join(",")},ListingKey,Photos`), /columns an import does not take: "ListingKey", "Photos"/],
+      [withHeader(HEADER.join(",").replace("PublicRemarks", "City")), /a column more than once: City/],
+      [withHeader(HEADER.filter((h) => h !== "ListAgentMlsId" && h !== "ListPrice").join(",")), /missing required columns: ListPrice, ListAgentMlsId/],
+      ["", /Choose a CSV file/],
+      [HEADER.join(","), /a header and no rows/],
+      [`${HEADER.join(",")}\n"never closed`, /a quoted value is never closed/],
+      [`${good}\u0000`, /not a CSV text file/],
+      [[HEADER.join(","), ...Array.from({ length: MAX_IMPORT_ROWS + 1 }, () => good.split("\r\n")[1])].join("\n"), new RegExp(`has ${MAX_IMPORT_ROWS + 1} rows. An import takes at most ${MAX_IMPORT_ROWS}`)],
+      [`${HEADER.join(",")}\n${"x".repeat(MAX_IMPORT_BYTES)}`, /larger than 2 MB/],
+    ];
+    for (const [text, message] of cases) await expect(previewImport(admin, { fileName: "bad.csv", sourceName: `Source ${run}`, text }), String(message)).rejects.toThrow(message);
+    await expect(previewImport(admin, { fileName: "bad.csv", sourceName: "   ", text: good })).rejects.toThrow("Name the system the file came from.");
+    await expect(previewImport(admin, { fileName: "bad.csv", sourceName: "x".repeat(81), text: good })).rejects.toThrow(/80 characters/);
+    expect((await db.select().from(listingImport)).length).toBe(before);
+  });
+});
+
+describe("duplicates", () => {
+  it("leaves out two rows for one property, and a row for a property with a listing that has not ended", async () => {
+    const street = `Duplicate Rd ${run}`;
+    const twin = { StreetName: street, StreetNumber: "7", ParcelNumber: `D${run}-twin` };
+    const existing = await createListing(agent, { ...row({ StreetName: street, StreetNumber: "9", ParcelNumber: `D${run}-open` }) });
+    const ended = await createListing(agent, { ...row({ StreetName: street, StreetNumber: "11", ParcelNumber: `D${run}-ended` }) });
+    await updateListing(agent, ended.ListingKey, { ...row({ StreetName: street, StreetNumber: "11", ParcelNumber: `D${run}-ended` }), StandardStatus: "Canceled" });
+    const preview = await upload([
+      row(twin),
+      row({ ...twin, ListPrice: "999000" }),
+      // The same parcel as an open listing, typed with other punctuation and another address.
+      row({ StreetName: `Elsewhere Rd ${run}`, ParcelNumber: `d ${run} open`.toUpperCase().replace("D ", "D").replace(" OPEN", "-OPEN") }),
+      // A property whose only listing has ended may be listed again.
+      row({ StreetName: street, StreetNumber: "11", ParcelNumber: `D${run}-ended` }),
+    ]);
+    const view = (await getImport(admin, preview.ImportKey))!;
+    expect(view.rows.map((r) => r.Outcome)).toEqual(["Duplicate", "Duplicate", "Duplicate", "Accepted"]);
+    expect(view.rows[0].Reasons).toEqual(["The same property as row 2 of this file."]);
+    expect(view.rows[1].Reasons).toEqual(["The same property as row 1 of this file."]);
+    expect(view.rows[2].Reasons).toEqual([`The same property as listing ${existing.ListingId}, which is Active.`]);
+    expect(view).toMatchObject({ accepted: 1, refused: 0, duplicates: 3 });
+    expect(await commitImport(admin, preview.ImportKey)).toEqual({ created: 1, stale: false });
+    // Only the accepted row was created: neither twin, and nothing over the open listing.
+    expect((await listingsIn(street)).map((l) => l.StreetNumber).sort()).toEqual(["11", "11", "9"]);
+    expect(await listingsIn(`Elsewhere Rd ${run}`)).toEqual([]);
+  });
+
+  it("cannot store the same source identifier twice for one source, whatever a check may have missed", async () => {
+    const one = row({ StreetName: `Once Rd ${run}` });
+    const preview = await upload([one], `Once ${run}`);
+    await commitImport(admin, preview.ImportKey);
+    const [created] = await listingsIn(`Once Rd ${run}`);
+    const other = await upload([row({ StreetName: `Once Rd ${run}`, StreetNumber: "500" })], `Once ${run}`);
+    await expect(
+      db.update(listingImportRow).set({ SourceListingId: one.SourceListingId!, ListingKey: created.ListingKey }).where(eq(listingImportRow.ImportKey, other.ImportKey)),
+    ).rejects.toThrow();
+  });
+});
+
+describe("imports, commits and hand entry at the same moment", () => {
+  it("creates a property's listing once when two imports of it are committed together", async () => {
+    for (let round = 0; round < 4; round++) {
+      const street = `Together Rd ${run}-${round}`;
+      const same = { StreetName: street, StreetNumber: "1", ParcelNumber: `T${run}-${round}` };
+      const a = await upload([row(same)], `Together A ${run}`);
+      const b = await upload([row(same)], `Together B ${run}`);
+      // Neither exists yet, so each preview accepts its row.
+      expect([...(await outcomes(a.ImportKey)), ...(await outcomes(b.ImportKey))].map(([, o]) => o)).toEqual(["Accepted", "Accepted"]);
+      const results = await Promise.all([commitImport(admin, a.ImportKey), commitImport(admin, b.ImportKey)]);
+      expect(results.map((r) => r.created).sort()).toEqual([0, 1]);
+      expect(results.find((r) => r.created === 0)).toEqual({ created: 0, stale: true });
+      expect(await listingsIn(street)).toHaveLength(1);
+    }
+  });
+
+  it("commits a preview once when commit is asked for twice at the same moment", async () => {
+    for (let round = 0; round < 4; round++) {
+      const street = `Twice Rd ${run}-${round}`;
+      const preview = await upload([row({ StreetName: street }), row({ StreetName: street })]);
+      const results = await Promise.allSettled([commitImport(admin, preview.ImportKey), commitImport(admin, preview.ImportKey)]);
+      expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+      expect((results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason.message).toBe("This import has already been committed. Nothing more was created.");
+      expect(await listingsIn(street)).toHaveLength(2);
+    }
+  });
+
+  it("takes a property's turn before creating its listing, by the form and by an import alike", async () => {
+    const input = row({ StreetName: `Turn Rd ${run}` });
+    const lock = `select pg_advisory_xact_lock(1330860364, hashtext(k)) from unnest(array[${propertyTurnKeys(validatedNewListing(input)).map((k) => `'${k.replace(/'/g, "''")}'`).join(", ")}]) as k`;
+    // While another transaction holds the property's turn, a listing entered by hand waits for it.
+    const byHand = await overlapping(lock, "select 1", () => createListing(agent, input));
+    expect(byHand.status).toBe("fulfilled");
+    // Hand entry is otherwise unchanged: an agent can still enter another listing for the same property.
+    await createListing(agent, input);
+    expect(await listingsIn(`Turn Rd ${run}`)).toHaveLength(2);
+  });
+
+  it("does not create a listing over one entered by hand while the commit was waiting for the property's turn", async () => {
+    const street = `Race Rd ${run}`;
+    const input = row({ StreetName: street });
+    const preview = await upload([input, row({ StreetName: street })]);
+    expect((await outcomes(preview.ImportKey)).map(([, o]) => o)).toEqual(["Accepted", "Accepted"]);
+    // Another transaction holds the first row's property and, while the commit waits, a listing for it appears,
+    // exactly as one entered by hand would: written by a transaction that held the turn.
+    const columns = ((await db.execute(sql`select column_name from information_schema.columns where table_name = 'Property' and column_name not in ('ListingKey', 'ListingId', 'StreetName', 'StreetNumber', 'ParcelNumber')`)).rows as { column_name: string }[]).map((c) => `"${c.column_name}"`).join(", ");
+    const [template] = await listingsIn(`Import Rd ${run}`);
+    const lock = `select pg_advisory_xact_lock(1330860364, hashtext(k)) from unnest(array[${propertyTurnKeys(validatedNewListing(input)).map((k) => `'${k.replace(/'/g, "''")}'`).join(", ")}]) as k`;
+    const arrives = `insert into "Property" (${columns}, "StreetName", "StreetNumber", "ParcelNumber") select ${columns}, '${street}', '${input.StreetNumber}', '${input.ParcelNumber}' from "Property" where "ListingKey" = '${template.ListingKey}'`;
+    const result = await overlapping(lock, arrives, () => commitImport(admin, preview.ImportKey));
+    expect(result).toMatchObject({ status: "fulfilled", value: { created: 0, stale: true } });
+    // Only the listing that arrived exists: the import created neither of its rows.
+    expect(await listingsIn(street)).toHaveLength(1);
+    const view = (await getImport(admin, preview.ImportKey))!;
+    expect(view.rows.map((r) => r.Outcome)).toEqual(["Duplicate", "Accepted"]);
+    expect(view.rows[0].Reasons[0]).toMatch(/^The same property as listing OS\d+, which is Active\.$/);
+  });
+
+  it("creates nothing when the capability is revoked between preview and commit, or while the commit waits", async () => {
+    const importer = (await createMember(admin, { firstName: "Importing", lastName: `Staff${++serial}`, email: `importer-${run}-${serial}@osmls.example`, memberId: `IM${run}-${serial}`, role: "staff", officeKey: "", phone: "" })).member;
+    await setCapabilities(admin, importer.MemberKey, ["imports"], "test");
+    const [holder] = await db.select().from(member).where(eq(member.MemberKey, importer.MemberKey));
+    const street = `Revoked Rd ${run}`;
+    const waiting = await upload([row({ StreetName: street })], `Source ${run}`, holder);
+    // Revoked while the commit is waiting for the authority turn.
+    const late = await overlapping(AUTHORITY_TURN, `update "Member" set "OsmlsCapabilities" = '{}' where "MemberKey" = '${holder.MemberKey}'`, () => commitImport(holder, waiting.ImportKey));
+    expect(late).toMatchObject({ status: "rejected", reason: { message: "Not found." } });
+    // Revoked beforehand: the session still says it holds the capability.
+    await expect(commitImport(holder, waiting.ImportKey)).rejects.toThrow("Not found.");
+    await expect(upload([row({ StreetName: street })], `Source ${run}`, holder)).rejects.toThrow("Not found.");
+    expect(await listingsIn(street)).toEqual([]);
+    expect((await db.select().from(listingImport).where(eq(listingImport.ImportKey, waiting.ImportKey)))[0].State).toBe("Previewed");
+  });
+});
+
+describe("what is kept, and for how long", () => {
+  it("stops offering a preview after its time, and deletes what it held at the next clean-up", async () => {
+    const street = `Expired Rd ${run}`;
+    const old = await upload([row({ StreetName: street })]);
+    const recent = await upload([row({ StreetName: street })]);
+    const done = await upload([row({ StreetName: `Kept Rd ${run}` })]);
+    await commitImport(admin, done.ImportKey);
+    const longAgo = new Date(Date.now() - (IMPORT_PREVIEW_HOURS + 1) * 60 * 60 * 1000);
+    await db.update(listingImport).set({ OriginalEntryTimestamp: longAgo }).where(inArray(listingImport.ImportKey, [old.ImportKey, done.ImportKey]));
+
+    // Past its time: not shown, not listed, and not committable. Nothing has been deleted yet.
+    expect(await getImport(admin, old.ImportKey)).toBeNull();
+    expect((await listImports(admin))!.map((i) => i.importKey)).not.toContain(old.ImportKey);
+    await expect(commitImport(admin, old.ImportKey)).rejects.toThrow("Not found.");
+    expect(await listingsIn(street)).toEqual([]);
+    expect((await db.select().from(listingImportRow).where(eq(listingImportRow.ImportKey, old.ImportKey)))[0].Content).not.toBeNull();
+
+    // The scheduled clean-up deletes it, with what its rows held. A recent preview and a committed import are untouched.
+    expect((await cleanUpImports()).previewsDeleted).toBeGreaterThanOrEqual(1);
+    expect(await db.select().from(listingImport).where(eq(listingImport.ImportKey, old.ImportKey))).toEqual([]);
+    expect(await db.select().from(listingImportRow).where(eq(listingImportRow.ImportKey, old.ImportKey))).toEqual([]);
+    expect(await getImport(admin, recent.ImportKey)).not.toBeNull();
+    const kept = (await getImport(admin, done.ImportKey))!;
+    expect(kept.import.State).toBe("Committed");
+    expect(kept.rows[0].listingId).toMatch(/^OS\d+$/);
+  });
+
+  it("shows an imported listing as new activity on a saved search, like any new listing", async () => {
+    const city = `ImportActivity${run}`;
+    const saved = await createSavedSearch(agent, `Imports ${run}`, { ...DEFAULT_CRITERIA, city, statuses: [] });
+    expect((await getActivity(agent, saved.SavedSearchKey))!.matching).toEqual([]);
+    const preview = await upload([row({ City: city, StreetName: `Activity Rd ${run}` })]);
+    await commitImport(admin, preview.ImportKey);
+    const [created] = await listingsIn(`Activity Rd ${run}`);
+    expect((await getActivity(agent, saved.SavedSearchKey))!.matching.map((l) => l.ListingId)).toEqual([created.ListingId]);
+    await db.delete(savedSearch).where(eq(savedSearch.SavedSearchKey, saved.SavedSearchKey));
+  });
+});
+
