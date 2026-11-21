@@ -498,7 +498,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | Slice | Delivers | Status |
    | --- | --- | --- |
    | 1 | Backup and recovery, proved by a restore drill in which the database and the uploaded files are restored together | Done 2026-11-21 (issue #37) |
-   | 2 | Monitoring: health checks, failure reporting, and a status screen | Not started |
+   | 2 | Monitoring: health checks, failure reporting, and a status screen | In progress (issue #40) |
    | 3 | Performance: the measured throughput and latency of listing changes, which commit one at a time | Not started |
 
    The phase is proved locally, in the Docker Compose setup the project ships.

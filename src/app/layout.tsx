@@ -38,6 +38,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {can(current, "imports") && <Link href="/admin/imports">Imports</Link>}
                   {can(current, "data") && <Link href="/admin/data-access">Data access</Link>}
                   {can(current, "settings") && <Link href="/admin/settings">Settings</Link>}
+                  {can(current, "settings") && <Link href="/admin/operations">Operations</Link>}
                 </nav>
                 <div className="ml-auto flex items-center gap-3 text-sm">
                   <span className="text-muted">

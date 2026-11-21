@@ -11,14 +11,25 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { Client } from "pg";
 
 const run = Date.now();
 const mailpit = process.env.MAILPIT_URL!;
 const OPS = `operations-${run}@osmls.example`;
 const backups = mkdtempSync(path.join(tmpdir(), "osmls-ops-e2e-"));
+const password = process.env.DEMO_PASSWORD!;
+const ADMIN = "morgan.ellis@osmls.example";
+const AGENT = "alex.rivera@osmls.example";
 let db: Client;
+
+async function signIn(page: Page, email: string) {
+  await page.goto("/sign-in");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/search/);
+}
 
 test.beforeAll(async () => {
   if (!mailpit) throw new Error("MAILPIT_URL is not set. Copy it from .env.example into .env and run `docker compose up -d mail`.");
@@ -35,7 +46,8 @@ test.afterAll(async () => {
   rmSync(backups, { recursive: true, force: true });
 });
 
-test("an overdue backup is emailed once, not again, and once more when a backup succeeds", async ({ request, baseURL }) => {
+test("an overdue backup is emailed once, not again, and once more when a backup succeeds", async ({ page, browser, request, baseURL }) => {
+  await signIn(page, ADMIN);
   const command = (script: string) =>
     execFileSync("pnpm", ["exec", "tsx", script], {
       env: { ...process.env, DATABASE_URL: process.env.TEST_DATABASE_URL, MEDIA_DIR: "./data/test-media", BACKUP_DIR: backups, OPS_EMAIL: OPS, BETTER_AUTH_URL: baseURL },
@@ -69,6 +81,12 @@ test("an overdue backup is emailed once, not again, and once more when a backup 
   scheduled();
   expect(await overdue()).toBe(0);
   expect(await received(0)).toEqual([]);
+  await page.getByRole("link", { name: "Operations" }).click();
+  await expect(page.getByTestId("conditions")).toContainText("Nothing is recorded as wrong.");
+  await expect(page.getByTestId("readiness").getByText("Not OK")).toHaveCount(0);
+  await expect(page.getByTestId("scheduled")).toContainText("Send alerts: done");
+  await expect(page.getByTestId("scheduled").getByRole("alert")).toHaveCount(0);
+  await expect(page.getByTestId("backup").getByRole("alert")).toHaveCount(0);
 
   // 27 hours pass with no backup. The scheduled command says so, once.
   await hoursPass(27);
@@ -80,6 +98,12 @@ test("an overdue backup is emailed once, not again, and once more when a backup 
   expect(ready.status()).toBe(200);
   expect(await ready.json()).toEqual({ status: "ok" });
   expect(await (await request.get("/api/health/live")).json()).toEqual({ status: "ok" });
+  // Staff see it on the status screen, with the readiness checks still OK.
+  await page.reload();
+  await expect(page.getByTestId("conditions")).toContainText("Backup overdue since");
+  await expect(page.getByTestId("conditions")).toContainText("Last emailed");
+  await expect(page.getByTestId("backup").getByRole("alert")).toHaveText("A backup is overdue.");
+  await expect(page.getByTestId("readiness").getByText("Not OK")).toHaveCount(0);
 
   // An hour later it runs again and sends nothing more.
   await hoursPass(1);
@@ -93,4 +117,18 @@ test("an overdue backup is emailed once, not again, and once more when a backup 
   expect(await received(2)).toEqual(["OSMLS: Backup overdue", "OSMLS: Backup overdue has ended"]);
   scheduled();
   expect(await received(2)).toHaveLength(2);
+  await page.reload();
+  await expect(page.getByTestId("conditions")).toContainText("Nothing is recorded as wrong.");
+
+  // If the scheduled command stops, nothing emails that. The screen works it out when it is opened.
+  await hoursPass(3);
+  await page.reload();
+  await expect(page.getByTestId("scheduled").getByRole("alert")).toContainText("No run has completed recently. It may have stopped.");
+  expect(await received(2)).toHaveLength(2);
+
+  // The screen does not exist for a member who does not manage settings.
+  const other = await (await browser.newContext()).newPage();
+  await signIn(other, AGENT);
+  await expect(other.getByRole("link", { name: "Operations" })).toHaveCount(0);
+  expect((await other.goto("/admin/operations"))!.status()).toBe(404);
 });

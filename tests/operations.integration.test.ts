@@ -25,7 +25,7 @@ import { MailError } from "../src/lib/mail";
 import { createSavedSearch } from "../src/lib/saved-work";
 import { DEFAULT_CRITERIA } from "../src/lib/search-criteria";
 import type { Mail } from "../src/lib/mail";
-import { SCHEDULED_TASKS, ScheduledRunRefused, isReady, lastCompletedRun, openConditions, readiness, runBackup, runScheduled, type ScheduledTask } from "../src/lib/operations";
+import { getOperationsStatus, SCHEDULED_TASKS, ScheduledRunRefused, isReady, lastCompletedRun, openConditions, readiness, runBackup, runScheduled, type ScheduledTask } from "../src/lib/operations";
 
 const HOUR = 60 * 60 * 1000;
 const SCRATCH = `osmls_ops_${Date.now()}`;
@@ -339,4 +339,21 @@ describe("a run that does nothing", () => {
     expect(JSON.parse(lines[0])).toMatchObject({ level: "error", event: "scheduled-run-refused", reason: "database-unavailable" });
     expect(result.stdout).not.toContain("Reports:");
   }, 60_000);
+});
+
+describe("the status screen's data", () => {
+  it("is for staff who manage settings and no one else", async () => {
+    const members = await db.select().from(member);
+    const staff = members.find((m) => m.OsmlsRole === "staff" && m.OsmlsCapabilities.includes("settings"))!;
+    const agent = members.find((m) => m.OsmlsRole === "agent")!;
+    expect(await getOperationsStatus(null)).toBeNull();
+    expect(await getOperationsStatus(agent)).toBeNull();
+    expect(await getOperationsStatus({ ...staff, OsmlsCapabilities: staff.OsmlsCapabilities.filter((c) => c !== "settings") })).toBeNull();
+    expect(await getOperationsStatus({ ...staff, MemberStatus: "Inactive" })).toBeNull();
+
+    // With nothing recorded, it says so: no run has completed, and that alone is not "backup overdue".
+    const status = (await getOperationsStatus(staff))!;
+    expect(status).toMatchObject({ scheduled: { last: null, overdue: true }, backup: { last: null, lastSuccessful: null, overdue: false }, conditions: [], reports: { address: true } });
+    expect(isReady(status.readiness)).toBe(true);
+  });
 });

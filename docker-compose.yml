@@ -49,8 +49,10 @@ services:
       # in the README.
       - ./data/media:/data/media
 
-  # Sends due saved-search alerts and tidies expired links, once an hour. A real
+  # Sends due saved-search alerts, tidies expired links and import previews,
+  # and emails OPS_EMAIL when something is wrong, once an hour. A real
   # installation would schedule `pnpm alerts:send` however it schedules jobs.
+  # Nothing here notices if this stops: see "Monitoring" in the README.
   alerts:
     build: .
     depends_on:
@@ -61,6 +63,12 @@ services:
       BETTER_AUTH_URL: http://localhost:${OSMLS_PORT:-3000}
       SMTP_URL: smtp://mail:1025
       MAIL_FROM: OSMLS demo <no-reply@osmls.example>
+      OPS_EMAIL: ${OPS_EMAIL:-}
+      # The folder the application stores files in, so that this can tell
+      # whether it can be written to.
+      MEDIA_DIR: /data/media
+    volumes:
+      - ./data/media:/data/media
     command: ["sh", "-c", "while true; do sleep 3600; pnpm alerts:send; done"]
 
   # Takes a backup of the database and the photo and document files together,

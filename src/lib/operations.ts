@@ -2,12 +2,13 @@ import { access, constants, mkdir } from "node:fs/promises";
 import { and, desc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { Client } from "pg";
 import { db, pool } from "@/db";
-import { jobRun, operatingCondition, type JobRun, type OperatingCondition, type RunTask } from "@/db/schema";
+import { jobRun, operatingCondition, type JobRun, type Member, type OperatingCondition, type RunTask } from "@/db/schema";
+import { can } from "./access";
 import { sendDueAlerts } from "./alerts";
-import { knownMigrations, pruneBackups, sweepUnreferencedFiles, takeBackup, type BackupTarget } from "./backup";
+import { INSTALLATION_ID_SQL, knownMigrations, mediaFolderOwner, pruneBackups, sweepUnreferencedFiles, takeBackup, type BackupTarget } from "./backup";
 import { cleanUpImports } from "./imports";
 import { mediaDir } from "./listings";
-import { sendMail, type Mail } from "./mail";
+import { mailEnabled, sendMail, type Mail } from "./mail";
 import { cleanUpShares } from "./shares";
 
 /*
@@ -303,4 +304,41 @@ export async function runScheduled(options: { now?: Date; send?: Send; tasks?: S
   } finally {
     holder.release();
   }
+}
+
+// ---- The status screen ----
+
+export type OperationsStatus = {
+  readiness: Readiness;
+  scheduled: { last: JobRun | null; overdue: boolean };
+  backup: { last: JobRun | null; lastSuccessful: JobRun | null; overdue: boolean };
+  mediaFolder: "this-database" | "another-database" | "unclaimed";
+  reports: { address: boolean; mail: boolean };
+  conditions: OperatingCondition[];
+};
+
+/**
+ * What staff see on the status screen. Null for anyone who does not manage
+ * settings: the screen does not exist for them.
+ *
+ * Whether a scheduled run is overdue is worked out here, when someone looks.
+ * It is never emailed: a scheduled command that has stopped cannot report its
+ * own absence.
+ */
+export async function getOperationsStatus(actor: Member | null, now = new Date()): Promise<OperationsStatus | null> {
+  if (!can(actor, "settings")) return null;
+  const lastScheduled = await lastCompletedRun("scheduled");
+  const lastBackup = await lastCompletedRun("backup");
+  const lastSuccessful = await lastSuccessfulRun("backup");
+  const overdue = (await backupVerdicts(now))["backup-overdue"];
+  const owner = await mediaFolderOwner(mediaDir());
+  const id = (await pool.query(`select ${INSTALLATION_ID_SQL} as id`)).rows[0].id as string;
+  return {
+    readiness: await readiness(),
+    scheduled: { last: lastScheduled, overdue: !lastScheduled || now.getTime() - lastScheduled.FinishedAt.getTime() > scheduledOverdueAfter() },
+    backup: { last: lastBackup, lastSuccessful, overdue: overdue !== "unknown" && overdue.holds },
+    mediaFolder: !owner ? "unclaimed" : owner === id ? "this-database" : "another-database",
+    reports: { address: operationsAddress() !== null, mail: mailEnabled() },
+    conditions: await openConditions(),
+  };
 }
