@@ -803,7 +803,11 @@ in this repository.
 | Run | Web API Core 2.1.0 | Data Dictionary 2.1 |
 | --- | --- | --- |
 | First, on the first working feed | 67 passed, 11 failed, 87 skipped | Metadata validation failed with 12 issues; records not reached |
-| Final, on this code | 153 passed, 0 failed, 173 skipped; 18 optional scenarios not supported | 6 steps passed, 1 skipped; 754 records replicated and validated in strict mode; 49 warnings |
+| Final, on commit `6b92774` | 153 passed, 0 failed, 173 skipped; 18 optional scenarios not supported | 6 steps passed, 1 skipped; 756 records replicated and validated in strict mode; 49 warnings |
+
+The final run tested the feed's code as it stood at commit `6b92774`. The only
+change after it in the pull request that added the feed is this paragraph and the
+table row above.
 
 What the first run found, and what was done:
 
