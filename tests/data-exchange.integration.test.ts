@@ -506,6 +506,57 @@ describe("what a consumer must reconcile, and when access ends", () => {
     }
   });
 
+  it("follows its own page links whatever the records hold: long text, line breaks, quotes, and empty values", async () => {
+    const { token } = await createDataConsumer(admin, { name: `Proof ${run} remarks` });
+    const city = `Remarks${run}`;
+    const remarks = ["B ".repeat(300).trim(), "A first line\nand a second", "C it's \"quoted\" & 100% odd / ünïcode\ttabbed", ""];
+    const made = [];
+    for (const [n, text] of remarks.entries()) {
+      made.push(
+        await createListing(agent, {
+          StandardStatus: "Active", PropertyType: "Residential", ListPrice: "500000", ListingContractDate: "2026-01-01",
+          StreetNumber: String(n + 1), StreetName: "Remarks Rd", City: city, StateOrProvince: "WA", PostalCode: "98986", BedroomsTotal: "3", BathroomsTotalInteger: "2",
+          PublicRemarks: text,
+        }),
+      );
+    }
+    expect(made[0].PublicRemarks).toHaveLength(599);
+    for (const orderby of ["PublicRemarks", "PublicRemarks desc", "PublicRemarks,ListPrice desc"]) {
+      const seen: string[] = [];
+      let path: string | undefined = `/Property?$filter=City eq '${city}'&$select=ListingKey,PublicRemarks&$orderby=${orderby}`;
+      // One record to a page, so every record's values travel in a link and come back.
+      while (path) {
+        const response = await get(path.replace(ROOT, ""), token, { Prefer: "odata.maxpagesize=1" });
+        expect(response.status, `${orderby}: ${path.slice(0, 120)}`).toBe(200);
+        const body = await response.json();
+        seen.push(...body.value.map((r: { ListingKey: string }) => r.ListingKey));
+        path = body["@odata.nextLink"];
+      }
+      expect(seen.slice().sort(), orderby).toEqual(made.map((l) => l.ListingKey).sort());
+      expect(new Set(seen).size, orderby).toBe(made.length);
+    }
+    // The same values can be filtered on.
+    const found = await (await get(`/Property?$select=ListingKey&$filter=City eq '${city}' and PublicRemarks eq '${encodeURIComponent(remarks[1])}'`, token)).json();
+    expect(found.value.map((r: { ListingKey: string }) => r.ListingKey)).toEqual([made[1].ListingKey]);
+    const long = await get(`/Property?$select=ListingKey&$filter=City eq '${city}' and PublicRemarks eq '${encodeURIComponent(remarks[0])}'`, token);
+    expect(((await long.json()).value ?? []).map((r: { ListingKey: string }) => r.ListingKey)).toEqual([made[0].ListingKey]);
+  });
+
+  it("accepts the page link it gives for every field of every resource, in both directions", async () => {
+    const { token } = await createDataConsumer(admin, { name: `Proof ${run} every field` });
+    for (const resource of SERVED_RESOURCES) {
+      for (const f of resource.fields.filter((field) => !field.derived || field.queryable)) {
+        for (const direction of ["asc", "desc"]) {
+          const first = await (await get(`/${resource.name}?$select=${resource.key}&$orderby=${f.name} ${direction}`, token, { Prefer: "odata.maxpagesize=1" })).json();
+          if (!first["@odata.nextLink"]) continue;
+          const next = await get(first["@odata.nextLink"].replace(ROOT, ""), token, { Prefer: "odata.maxpagesize=1" });
+          expect(next.status, `${resource.name} by ${f.name} ${direction}`).toBe(200);
+          expect((await next.json()).value[0][resource.key], `${resource.name} by ${f.name} ${direction}`).not.toBe(first.value[0][resource.key]);
+        }
+      }
+    }
+  });
+
   it("holds the limit when requests arrive at the same moment, for records and photos alike", async () => {
     const { consumer, token } = await createDataConsumer(admin, { name: `Proof ${run} burst` });
     const listing = await createListing(agent, {

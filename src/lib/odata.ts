@@ -19,7 +19,14 @@ export class ODataError extends Error {
   }
 }
 
-/** Text the database can hold: no control characters, and not absurdly long. */
+/**
+ * Text the database can hold, which is any text without a NUL character. A
+ * served field may hold long text, line breaks and tabs (remarks do), so a
+ * value compared with one, in a filter or in a page link, may too.
+ */
+export const isStorableText = (v: string) => !v.includes("\u0000");
+
+/** Text that could be a record's key: short, with no control characters. */
 export const isPlainText = (v: string) => v.length <= 500 && !/[\u0000-\u001f\u007f]/.test(v);
 
 /**
@@ -144,7 +151,7 @@ export function parseFilter(resource: ServedResource, value: string | null, now:
     // Every value is checked here to be one the database will accept, so that a
     // value it would refuse is answered as a bad query and never reaches it.
     if (t.kind === "string") {
-      if (!isPlainText(t.text)) throw new ODataError("$filter has text that is too long or holds control characters.");
+      if (!isStorableText(t.text)) throw new ODataError("$filter has text holding a character no stored text can hold.");
       return { kind: "string", value: t.text };
     }
     if (t.kind === "number") {

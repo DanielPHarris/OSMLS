@@ -7,7 +7,7 @@ import { ListingError } from "./listings";
 import { appUrl } from "./mail";
 import { getMarketTime, withOneSettingsVersion } from "./market-time";
 import { actingStaff, takeAuthorityTurn } from "./members";
-import { ODataError, isPlainText, parseCount, parseExpand, parseFilter, parseOrderBy, parseSelect, type Filter, type Literal, type Order } from "./odata";
+import { ODataError, isPlainText, isStorableText, parseCount, parseExpand, parseFilter, parseOrderBy, parseSelect, type Filter, type Literal, type Order } from "./odata";
 import { isCalendarDate } from "./validation";
 import {
   DEFAULT_PAGE_SIZE,
@@ -285,7 +285,8 @@ function isPlaceValue(type: EdmType, v: string): boolean {
   if (type === "Edm.Date") return isCalendarDate(v);
   // As the database writes a time: "2026-11-20 23:29:25.231+00".
   if (type === "Edm.DateTimeOffset") return /^\d{4}-\d{2}-\d{2} [0-2]\d:[0-5]\d:[0-5]\d(\.\d{1,6})?[+-]\d{2}(:\d{2}){0,2}$/.test(v) && isCalendarDate(v.slice(0, 10)) && Number(v.slice(11, 13)) < 24;
-  if (type === "Edm.String") return isPlainText(v);
+  // Any text a served field can hold, so that a link made from a record's own values is always accepted.
+  if (type === "Edm.String") return isStorableText(v);
   return v.length <= 40 && /^-?\d+(\.\d+)?$/.test(v);
 }
 
