@@ -481,6 +481,24 @@ Next, in this order unless contributors and the maintainer agree otherwise:
      alerts.
 5. Production operations: monitoring, backups, recovery. Measuring what committing
    listing changes one at a time costs under load belongs here.
+   In progress. Proposed, and not yet accepted by the maintainer, as one phase
+   in three slices, complete only when all three are:
+
+   | Slice | Delivers | Status |
+   | --- | --- | --- |
+   | 1 | Backup and recovery, proved by a restore drill in which the database and the uploaded files are restored together | In progress (issue #37) |
+   | 2 | Monitoring: health checks, failure reporting, and a status screen | Not started |
+   | 3 | Performance: the measured throughput and latency of listing changes, which commit one at a time | Not started |
+
+   The phase is proved locally, in the Docker Compose setup the project ships.
+   That shows the mechanisms work. It does not show that a hosted installation
+   is protected. Left to an installation, and not built here: TLS in front of
+   the application; copying backups off the machine and encrypting them (both
+   possible locally, and left out by choice); point-in-time recovery; running
+   the scheduled command from a real scheduler; an independent monitor that
+   notices when the machine, or the scheduled command itself, has stopped; log
+   shipping and paging; secrets management; sizing; and object storage for
+   files.
 
 Agreed by the maintainer on 2026-11-20: this roadmap ends with items 4 and 5,
 data exchange and then production operations, in that order. What section 4
@@ -488,7 +506,7 @@ defers stays outside it unless the maintainer changes the scope. Finishing the
 roadmap is not production readiness: there is no hosted instance, and wider
 browser and device testing, a security review, and the fair-housing design
 requirements below would still be needed before that could be said. Item 4 is
-complete. Item 5 is the last and has no delivery plan yet.
+complete. Item 5 is the last; its plan is above.
 
 Fair-housing considerations (section 8) are a design requirement and are not yet
 implemented in any feature.
