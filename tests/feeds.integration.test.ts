@@ -3,7 +3,6 @@
  * display feed carries and what it does not, that a consumer reads its own
  * feed and no other, and what a member's exported file holds.
  *
- * This is the first proof; the fuller set comes with the rest of the slice.
  */
 import { eq, like, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -11,10 +10,11 @@ import { GET as feed } from "../src/app/api/reso/[[...path]]/route";
 import { GET as photoRoute } from "../src/app/api/reso-photo/[key]/route";
 import { db, pool } from "../src/db";
 import { dataConsumer, dataRequest, exportLog, member, type Member } from "../src/db/schema";
-import { createDataConsumer, metadataDocument } from "../src/lib/data-exchange";
+import { createDataConsumer, feedOf, listDataConsumers, metadataDocument, revokeDataConsumer } from "../src/lib/data-exchange";
 import { AGENT_EXPORT_COLUMNS, CLIENT_EXPORT_COLUMNS, exportDisclosure, exportsBy, recordExport, searchExport, toCsv } from "../src/lib/exports";
 import { addPhoto, createListing, updateListing } from "../src/lib/listings";
 import { createMember } from "../src/lib/members";
+import { createOffice } from "../src/lib/offices";
 import { FEEDS, SERVED_RESOURCES, feedView } from "../src/lib/rules/data-exchange";
 import { MAX_SEARCH_RESULTS } from "../src/lib/rules/local";
 import { DEFAULT_CRITERIA } from "../src/lib/search-criteria";
@@ -181,6 +181,99 @@ describe("the public display feed", () => {
     expect(await keysOf(inCity("&$orderby=ClosePrice asc"), pub)).toEqual([pending.ListingKey, sold.ListingKey]);
     // The full feed carries what is stored.
     expect(await keysOf(inCity(" and ClosePrice eq 470000"), full)).toEqual([pending.ListingKey]);
+  });
+});
+
+describe("entering and leaving the public display feed", () => {
+  it("brings in a listing, its photos, its agent and its office when it reaches a displayed status, and lists its city", async () => {
+    const pub = (await createDataConsumer(admin, { name: `Feeds ${run} entering`, feed: "public" })).token;
+    const city = `Entering${run}`;
+    // A new office with one agent, whose only listing is not yet on the market.
+    const office = await createOffice(admin, { name: `Feeds Office ${run}`, officeId: `FO${run}`, phone: "", mainOfficeKey: "" });
+    const newcomer = (await createMember(admin, { firstName: "Entering", lastName: `Agent${run}`, email: `entering-${run}@osmls.example`, memberId: `FD${run}-2`, role: "agent", officeKey: office.OfficeKey, phone: "" })).member;
+    const listing = await createListing(newcomer, fields(city, { StandardStatus: "Coming Soon" }));
+    const photo = await addPhoto(newcomer, listing.ListingKey, png);
+    const cities = async () => ((await (await get("/Lookup?$filter=LookupName eq 'City'&$top=200", pub, { Prefer: "odata.maxpagesize=200" })).json()).value as { LookupValue: string }[]).map((l) => l.LookupValue);
+    const present = async () => ({
+      listing: (await get(`/Property('${listing.ListingKey}')`, pub)).status,
+      photo: (await getPhoto(photo.MediaKey, pub)).status,
+      media: (await get(`/Media('${photo.MediaKey}')`, pub)).status,
+      member: (await get(`/Member('${newcomer.MemberKey}')`, pub)).status,
+      office: (await get(`/Office('${office.OfficeKey}')`, pub)).status,
+      city: (await cities()).includes(city),
+    });
+    const absent = { listing: 404, photo: 404, media: 404, member: 404, office: 404, city: false };
+    const there = { listing: 200, photo: 200, media: 200, member: 200, office: 200, city: true };
+    const same = { StreetNumber: listing.StreetNumber, ParcelNumber: listing.ParcelNumber! };
+    expect(await present()).toEqual(absent);
+
+    const before = new Date().toISOString();
+    await updateListing(newcomer, listing.ListingKey, { ...fields(city), ...same, StandardStatus: "Active" });
+    expect(await present()).toEqual(there);
+    // Entering the feed is a change to the listing, so a poll reports it.
+    expect(await keysOf(`/Property?$filter=ModificationTimestamp ge ${before} and City eq '${city}'`, pub)).toEqual([listing.ListingKey]);
+
+    // Leaving it is not something a poll can report: the record is simply no longer served.
+    const left = new Date().toISOString();
+    await updateListing(newcomer, listing.ListingKey, { ...fields(city), ...same, StandardStatus: "Withdrawn" });
+    expect(await present()).toEqual(absent);
+    expect(await keysOf(`/Property?$filter=ModificationTimestamp ge ${left}&$top=200`, pub)).not.toContain(listing.ListingKey);
+
+    // A staff correction back to Active brings it all back.
+    await updateListing(admin, listing.ListingKey, { ...fields(city), ...same, StandardStatus: "Active" }, "Withdrawn by mistake");
+    expect(await present()).toEqual(there);
+  });
+
+  it("accepts the page link it gives for every field it carries, the masked ones included", async () => {
+    const pub = (await createDataConsumer(admin, { name: `Feeds ${run} links`, feed: "public" })).token;
+    for (const resource of feedView("public").resources) {
+      for (const f of resource.fields.filter((field) => !field.derived || field.queryable)) {
+        for (const direction of ["asc", "desc"]) {
+          const first = await (await get(`/${resource.name}?$select=${resource.key}&$orderby=${f.name} ${direction}`, pub, { Prefer: "odata.maxpagesize=1" })).json();
+          if (!first["@odata.nextLink"]) continue;
+          const next = await get(first["@odata.nextLink"].replace(ROOT, ""), pub, { Prefer: "odata.maxpagesize=1" });
+          expect(next.status, `${resource.name} by ${f.name} ${direction}`).toBe(200);
+          expect((await next.json()).value[0][resource.key], `${resource.name} by ${f.name} ${direction}`).not.toBe(first.value[0][resource.key]);
+        }
+      }
+    }
+    // Paging to the end sorted on the masked sale price gives every record once.
+    const seen: string[] = [];
+    for (let path: string | undefined = "/Property?$select=ListingKey,ClosePrice&$orderby=ClosePrice desc&$count=true"; path; ) {
+      const body = await (await get(path.replace(ROOT, ""), pub, { Prefer: "odata.maxpagesize=25" })).json();
+      seen.push(...body.value.map((r: { ListingKey: string }) => r.ListingKey));
+      path = body["@odata.nextLink"];
+    }
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen.length).toBe((await (await get("/Property?$top=0&$count=true", pub)).json())["@odata.count"]);
+  });
+});
+
+describe("which feed a consumer reads", () => {
+  it("is fixed when the consumer is added, shown to staff, written to each request's record, and ended only by revoking", async () => {
+    const made = await createDataConsumer(admin, { name: `Feeds ${run} fixed`, feed: "public" });
+    const listed = (await listDataConsumers(admin))!.find((c) => c.consumerKey === made.consumer.ConsumerKey)!;
+    expect(listed).toMatchObject({ feed: "public", state: "Active" });
+    await get("/Office?$top=1", made.token);
+    const other = await createDataConsumer(admin, { name: `Feeds ${run} fixed full`, feed: "full" });
+    await get("/Office?$top=1", other.token);
+    const logged = async (key: string) => (await db.select().from(dataRequest).where(eq(dataRequest.ConsumerKey, key))).map((r) => r.Feed);
+    expect(await logged(made.consumer.ConsumerKey)).toEqual(["public"]);
+    expect(await logged(other.consumer.ConsumerKey)).toEqual(["full"]);
+    // Nothing in the application changes a consumer's feed: the only things staff can do to one are add it and revoke it.
+    const operations = Object.keys(await import("../src/lib/data-exchange")).filter((name) => /consumer/i.test(name)).sort();
+    expect(operations).toEqual(["consumerFor", "createDataConsumer", "listDataConsumers", "revokeDataConsumer"]);
+    await revokeDataConsumer(admin, made.consumer.ConsumerKey);
+    expect((await get("/Office?$top=1", made.token)).status).toBe(401);
+    expect((await db.select().from(dataConsumer).where(eq(dataConsumer.ConsumerKey, made.consumer.ConsumerKey)))[0].Feed).toBe("public");
+  });
+
+  it("answers a consumer whose record names no known feed with nothing, never with a wider feed", async () => {
+    const made = await createDataConsumer(admin, { name: `Feeds ${run} unknown`, feed: "public" });
+    // The database refuses a feed that is not one of the two.
+    await expect(db.execute(sql`update "OsmlsDataConsumer" set "Feed" = 'everything' where "ConsumerKey" = ${made.consumer.ConsumerKey}::uuid`)).rejects.toThrow();
+    expect(() => feedOf({ Feed: "everything" })).toThrow(/unknown feed/);
+    expect(() => feedOf({ Feed: "constructor" })).toThrow(/unknown feed/);
   });
 });
 
