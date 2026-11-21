@@ -89,7 +89,7 @@ production-ready.**
   automatically, and this is not legal compliance. A gap of the same kind in
   the sharing work, where a member suspended while a request was waiting could
   still be given a client link, was closed on 2026-11-20 (issue #29).
-- Data exchange is under way: slice 1 of 3 is delivered. An outside system
+- Data exchange is under way: slices 1 and 2 of 3 are delivered. An outside system
   holding a bearer token reads listings, agents, offices and photo records
   through a read-only RESO Web API. What it carries is one hand-written
   allowlist: every status, and never documents, showing instructions, lock box
@@ -97,9 +97,14 @@ production-ready.**
   sixth capability, "Manage data access", add and revoke the systems that may
   read. RESO's certification tool passes against a local instance; that is not
   a certification, its variations check and HTTPS were not tested, and the data
-  was small and synthetic. Complete synchronization is not promised. Feeds with
-  differing contents, file export, and imports (slices 2 and 3) are not built,
-  so the phase is not complete.
+  was small and synthetic. Complete synchronization is not promised. There are
+  two feeds, each a narrowing of the allowlist: the full one, and a public
+  display feed with the client-copy statuses and fields, in which a sale price
+  is given only for a sale. A data consumer reads one feed, fixed when it is
+  added. Members export the up-to-100 listings a search reads as a CSV file, in
+  an agent kind and a client kind with fixed columns and no showing or lock box
+  details; each download is recorded, and a cut-off search is disclosed without
+  a total. Imports (slice 3) are not built, so the phase is not complete.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -412,7 +417,7 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    | Slice | Delivers | Status |
    | --- | --- | --- |
    | 1 | A read-only RESO Web API endpoint with bearer tokens, and RESO's certification tool run against it | Done 2026-11-20 (issue #31) |
-   | 2 | Controlled distribution: more than one kind of feed, and file export of search results | In progress (issue #33) |
+   | 2 | Controlled distribution: more than one kind of feed, and file export of search results | Done 2026-11-20 (issue #33) |
    | 3 | Imports through the same validation and history as hand entry | Not started |
 
    Decided by the maintainer on 2026-11-20 for slice 1:
@@ -429,6 +434,21 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    - "Manage data access" is a sixth capability, given on upgrade to accounts
      that hold "Manage staff".
    - A page holds at most 200 records.
+
+   Decided by the maintainer on 2026-11-20 for slice 2:
+   - Two feeds, full and public display, with no feeds defined by staff and no
+     choice of fields for one consumer.
+   - The public display feed carries Active, Active Under Contract, Pending and
+     Closed listings with the client-copy fields; a sale price and date only
+     for Closed listings, to responses and queries alike; and agents and
+     offices only where they have a listing in it, by name.
+   - A consumer's feed is fixed when it is added; changing it means revoking
+     and adding another. Existing consumers are on the full feed.
+   - Members may export a search's listings as CSV in an agent kind and a
+     client kind, from the up-to-100 listings a search reads, with no showing
+     or lock box details in either.
+   - Any active member may export, with no new capability, and every export is
+     recorded.
 5. Production operations: monitoring, backups, recovery. Measuring what committing
    listing changes one at a time costs under load belongs here.
 
