@@ -1113,8 +1113,87 @@ tools are run from the PostgreSQL Docker image of the server's version;
 `OSMLS_PG_TOOLS=path` or `=docker` settles it without looking.
 
 Not included: copying backups off the machine, encrypting them, point-in-time
-recovery, restoring part of a backup, and telling anyone when backups stop running
-(that is the monitoring slice).
+recovery, and restoring part of a backup.
+
+### Added since 0.1: monitoring
+
+The installation watches itself and tells someone when something is wrong. It is
+proved locally, like backup and recovery, and that is all it shows.
+
+**What it cannot do.** It runs inside the installation and records in its
+database. It cannot tell you that the machine is off, that the database is
+unreachable, or that the scheduled command which does the reporting has stopped.
+A monitor outside the installation is needed for those, and is not part of OSMLS.
+The health checks are what it would call.
+
+**Health checks.** Two addresses, open without sign-in, that answer only
+`{"status":"ok"}` or `{"status":"not ok"}`:
+
+| Address | Says ok when | Otherwise |
+| --- | --- | --- |
+| `/api/health/live` | The application process answers. It checks nothing else. | No answer |
+| `/api/health/ready` | The database answers, its schema is the version this application expects, and the media folder can be written to. | 503 |
+
+Backups are not part of "ready". An overdue backup is reported; it is no reason
+to take a working application out of service.
+
+**What is recorded.** Every run of `pnpm backup` and of the scheduled command
+(`pnpm alerts:send`) records when it ran and how it ended. The scheduled command
+records each of its tasks: sending alerts, tidying expired links, and tidying
+import previews. One task failing does not stop the others. A run that found
+another already running is recorded as skipped, and is not counted as a run.
+
+**What is reported.** At the end of each scheduled run, these are checked and
+emailed to the address in `OPS_EMAIL`:
+
+| Condition | Begins when | Ends when |
+| --- | --- | --- |
+| Backup overdue | No backup has succeeded in 26 hours (`BACKUP_OVERDUE_HOURS`) | A backup succeeds |
+| Backup failed | The latest backup run recorded a failure | A backup succeeds |
+| Scheduled run failed | A task of the run did not finish | A later run's tasks all finish |
+| Alerts failing | At least one alert email was refused, may not have arrived, was paused after repeated failures, or could not be prepared | A later run sends at least one alert with none failing |
+| Media folder not writable | Photos and documents cannot be stored | They can |
+
+- One email when a condition begins, one every 24 hours while it lasts, and one
+  when it ends.
+- A run whose alerts were not all sent is recorded as failed, with the counts.
+- A run with no alerts to send says nothing about whether mail works, so it
+  neither begins nor ends "alerts failing".
+- With `OPS_EMAIL` unset, nothing is emailed; the conditions are still recorded
+  and shown.
+- If a report cannot be sent, it stays owed and is tried at the next run. The
+  reports go through the same mail server as everything else, so if that is what
+  has failed, they wait until it is back.
+
+**What is not emailed.**
+
+- The database is unavailable, or its schema is another version's. The scheduled
+  command then runs no task, writes one error line to its log
+  (`"event":"scheduled-run-refused"`), and exits with an error. What has already
+  been reported is itself recorded in the database, so no email can be promised.
+  The readiness check answers not ok.
+- The scheduled command has stopped. Nothing is running to say so. Whether its
+  last completed run is more than 2 hours old (`SCHEDULED_OVERDUE_HOURS`) is
+  worked out when the status screen is opened, and shown there.
+
+**Status screen.** Staff who hold "Manage settings" have an **Operations**
+screen: what is recorded as wrong and when it was last emailed, each readiness
+check, the last scheduled run with each task's outcome, the last successful
+backup, and whether the media folder has been given to this database. It does
+not exist for anyone else.
+
+**Server errors.** Each server error the application did not handle writes one
+line of JSON to the process log (`"event":"server-error"`): a request identifier
+made by the application (never one the caller sent), the method, the route's
+pattern such as `/listings/[id]`, the kind of error, and the reference shown on
+the error page. That line holds no query string, form contents, address, member,
+or error message. Next.js also prints the error itself to the log, as it always
+has, and an error's message can quote data: treat the process log as sensitive.
+Errors are not stored, counted or emailed, and shipping the log anywhere is the
+installation's.
+
+Not included: a monitor outside the installation, paging, log shipping, metrics
+and dashboards, and watching disk space.
 
 ### Not yet built
 

@@ -9,7 +9,8 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { pruneBackups, sweepUnreferencedFiles, takeBackup } from "../src/lib/backup";
+import { pool } from "../src/db";
+import { runBackup } from "../src/lib/operations";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is not set.");
@@ -21,9 +22,12 @@ const target = {
 const keep = Number(process.env.BACKUP_KEEP ?? 14);
 const applicationVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
 
-const made = await takeBackup(target, { applicationVersion });
-console.log(`Backup: ${made.dir} (${made.manifest.files.length} files, ${Object.values(made.manifest.tables).reduce((a, b) => a + b, 0)} records).`);
-const pruned = await pruneBackups(target, keep);
-console.log(`Backups: ${pruned.deleted.length} older than the last ${keep} deleted.`);
-const swept = await sweepUnreferencedFiles(target);
-console.log(swept.skipped ? `Files: ${swept.skipped}` : `Files: ${swept.deleted.length} that no record refers to deleted.`);
+// How the run ended is recorded either way, so that a failure can be reported.
+try {
+  const { made, pruned, swept } = await runBackup(target, { keep, applicationVersion });
+  console.log(`Backup: ${made.dir} (${made.manifest.files.length} files, ${Object.values(made.manifest.tables).reduce((a, b) => a + b, 0)} records).`);
+  console.log(`Backups: ${pruned.deleted.length} older than the last ${keep} deleted.`);
+  console.log(swept.skipped ? `Files: ${swept.skipped}` : `Files: ${swept.deleted.length} that no record refers to deleted.`);
+} finally {
+  await pool.end().catch(() => {});
+}

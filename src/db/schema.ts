@@ -672,3 +672,52 @@ export const listingImportRow = pgTable(
 export type ListingImport = typeof listingImport.$inferSelect;
 export type ListingImportRow = typeof listingImportRow.$inferSelect;
 
+
+/*
+ * One run of the scheduled command or of a backup: when, and how it ended.
+ * A run that found another already running did nothing and is recorded as
+ * Skipped; it is not a completed run.
+ */
+export type RunTask = { name: string; outcome: "Succeeded" | "Failed"; detail: string };
+export const jobRun = pgTable(
+  "OsmlsJobRun",
+  {
+    RunKey: bigserial({ mode: "number" }).primaryKey(),
+    Job: text().notNull(),
+    StartedAt: timestamptz().notNull(),
+    FinishedAt: timestamptz().notNull(),
+    Outcome: text().notNull(),
+    // What each part of the run did. Counts and reasons only: no member, address or listing.
+    Tasks: jsonb().$type<RunTask[]>().notNull(),
+  },
+  (t) => [
+    check("OsmlsJobRun_Job_valid", sql.raw(`"Job" IN ('scheduled', 'backup')`)),
+    check("OsmlsJobRun_Outcome_valid", sql.raw(`"Outcome" IN ('Succeeded', 'Failed', 'Skipped')`)),
+    index("OsmlsJobRun_latest").on(t.Job, t.FinishedAt),
+  ],
+);
+
+/*
+ * Something wrong with the installation that has been noticed: from when,
+ * when it was last reported by email, and when it stopped being so.
+ */
+export const operatingCondition = pgTable(
+  "OsmlsCondition",
+  {
+    ConditionKey: bigserial({ mode: "number" }).primaryKey(),
+    Condition: text().notNull(),
+    Detail: text().notNull(),
+    BeganAt: timestamptz().notNull(),
+    // Null until an email about it has been accepted by the mail server.
+    LastReportedAt: timestamptz(),
+    ClearedAt: timestamptz(),
+    // Null until the email saying it cleared has been accepted, or it was settled that none is owed.
+    ClearSettledAt: timestamptz(),
+  },
+  (t) => [
+    // A condition is open once at a time, whatever two runs at once may try.
+    uniqueIndex("OsmlsCondition_open_once").on(t.Condition).where(sql`${t.ClearedAt} IS NULL`),
+  ],
+);
+export type JobRun = typeof jobRun.$inferSelect;
+export type OperatingCondition = typeof operatingCondition.$inferSelect;
