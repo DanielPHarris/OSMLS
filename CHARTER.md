@@ -117,7 +117,7 @@ production-ready.**
   drill in the test suite destroys a database and its files and restores them.
   To make that possible, removing a photo or a document no longer deletes its
   file at once: it leaves the application immediately, and its file is deleted
-  later and remains in backups until they are pruned. This is proved locally
+  later, once the media folder has been given to that database alone, and remains in backups until they are pruned. This is proved locally
   only. Backups stay on the same machine, unencrypted, and nothing yet reports
   when they stop. Monitoring and performance measurement (slices 2 and 3) are
   not built, so the phase is not complete.
@@ -525,6 +525,14 @@ Next, in this order unless contributors and the maintainer agree otherwise:
      folder.
    - There is no point-in-time recovery: a restore loses everything since the
      last completed backup.
+
+   Decided by the maintainer on 2026-11-21, after a defect found in slice 1
+   (pull request #39): the sweep deleted every file its own database did not
+   refer to, so two databases using one media folder would have deleted each
+   other's files.
+   - Backups continue, but the sweep deletes nothing until the media folder
+     has been given to one database with `pnpm media:claim`. Until then removed
+     files accumulate on disk.
 
 Agreed by the maintainer on 2026-11-20: this roadmap ends with items 4 and 5,
 data exchange and then production operations, in that order. What section 4
