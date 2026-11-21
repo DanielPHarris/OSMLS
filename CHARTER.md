@@ -89,7 +89,7 @@ production-ready.**
   automatically, and this is not legal compliance. A gap of the same kind in
   the sharing work, where a member suspended while a request was waiting could
   still be given a client link, was closed on 2026-11-20 (issue #29).
-- Data exchange is under way: slices 1 and 2 of 3 are delivered. An outside system
+- Data exchange is implemented: all three slices are delivered. An outside system
   holding a bearer token reads listings, agents, offices and photo records
   through a read-only RESO Web API. What it carries is one hand-written
   allowlist: every status, and never documents, showing instructions, lock box
@@ -104,7 +104,12 @@ production-ready.**
   added. Members export the up-to-100 listings a search reads as a CSV file, in
   an agent kind and a client kind with fixed columns and no showing or lock box
   details; each download is recorded, and a cut-off search is disclosed without
-  a total. Imports (slice 3) are not built, so the phase is not complete.
+  a total. Staff who hold a seventh capability, "Import listings", load new
+  listings from a CSV file on behalf of agents: each is checked and created by
+  the one path a hand-entered listing takes, nothing is created until a preview
+  is confirmed, and a commit creates exactly the rows the preview accepted or
+  nothing. The importer cannot migrate an existing MLS's historical records;
+  that is deferred (section 4).
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -198,7 +203,7 @@ Out of 0.1, planned for later releases (see section 10):
   section 10).
 - Administration screens and access suspension (since added; see section 10).
 - Compliance flags (since added; see section 10).
-- Imports, exports, and a RESO Web API endpoint.
+- Imports, exports, and a RESO Web API endpoint (since added; see section 10).
 - Production operations: monitoring, backups, recovery.
 
 ## 6. License and repository
@@ -417,14 +422,14 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    - Members see the resulting figures, not that staff set them.
 4. Imports, exports, and a RESO Web API endpoint, checked with RESO's certification
    tool. Any export must apply the document and showing access rules.
-   In progress, as one phase in three slices, each with its own issue and pull
-   request. The phase is complete only when all three are:
+   Planned as one phase in three slices, each with its own issue and pull
+   request. All three are done, so this phase is complete:
 
    | Slice | Delivers | Status |
    | --- | --- | --- |
    | 1 | A read-only RESO Web API endpoint with bearer tokens, and RESO's certification tool run against it | Done 2026-11-20 (issue #31) |
    | 2 | Controlled distribution: more than one kind of feed, and file export of search results | Done 2026-11-20 (issue #33) |
-   | 3 | Imports of new listings through the same validation and history as hand entry | In progress (issue #35) |
+   | 3 | Imports of new listings through the same validation and history as hand entry | Done 2026-11-21 (issue #35) |
 
    Decided by the maintainer on 2026-11-20 for slice 1:
    - Three slices, in the order above.
@@ -455,6 +460,25 @@ Next, in this order unless contributors and the maintainer agree otherwise:
      or lock box details in either.
    - Any active member may export, with no new capability, and every export is
      recorded.
+
+   Decided by the maintainer on 2026-11-21 for slice 3:
+   - Imports create new listings only: no updates, and no historical or ended
+     listings. Migration is deferred (section 4).
+   - The file is CSV with fixed Data Dictionary column names; an unknown column
+     refuses it.
+   - Staff import on behalf of agents, each row naming its listing agent, and
+     the listing's history records the staff member and the import.
+   - "Import listings" is a seventh capability, given on upgrade to accounts
+     that hold "Manage staff".
+   - A source identifier already imported from the same source is refused, the
+     source's name compared without regard to case or spacing. A row for a
+     property that has a listing that has not ended, or that shares its
+     property with another row, is left out and reported.
+   - A commit creates exactly the rows the preview accepted, all or nothing.
+   - A file holds up to 500 rows. An uncommitted preview is unavailable after
+     24 hours and deleted at the next scheduled clean-up.
+   - Imported listings count as new listings for saved-search activity and
+     alerts.
 5. Production operations: monitoring, backups, recovery. Measuring what committing
    listing changes one at a time costs under load belongs here.
 
@@ -463,8 +487,8 @@ data exchange and then production operations, in that order. What section 4
 defers stays outside it unless the maintainer changes the scope. Finishing the
 roadmap is not production readiness: there is no hosted instance, and wider
 browser and device testing, a security review, and the fair-housing design
-requirements below would still be needed before that could be said. Item 5 has
-no delivery plan yet.
+requirements below would still be needed before that could be said. Item 4 is
+complete. Item 5 is the last and has no delivery plan yet.
 
 Fair-housing considerations (section 8) are a design requirement and are not yet
 implemented in any feature.
