@@ -3,7 +3,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, asc, between, count, desc, eq, gte, ilike, inArray, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { db, type Tx } from "../db";
-import { FILES_LOCK } from "./backup";
+import { FILES_LOCK, INSTALLATION_ID_SQL, mediaFolderOwner } from "./backup";
 import {
   historyTransactional,
   media,
@@ -139,7 +139,15 @@ export function authorizeChange(actor: Actor, listing: Property, correctionReaso
  * FILES_LOCK in src/lib/backup.ts: it is what keeps the sweep away from a file
  * whose record is still on its way.
  */
-export const holdFilesShared = (tx: Tx) => tx.execute(sql.raw(`select pg_advisory_xact_lock_shared(${FILES_LOCK})`));
+export async function holdFilesShared(tx: Tx): Promise<void> {
+  await tx.execute(sql.raw(`select pg_advisory_xact_lock_shared(${FILES_LOCK})`));
+  // A media folder that has been given to another database is swept by that database, which would
+  // delete what this one puts in it. Nothing is written there.
+  const owner = await mediaFolderOwner(mediaDir());
+  if (owner === null) return;
+  const [{ id }] = (await tx.execute(sql.raw(`select ${INSTALLATION_ID_SQL} as id`))).rows as { id: string }[];
+  if (owner !== id) throw new ListingError("Files cannot be stored: the media folder belongs to another installation. Tell MLS staff.");
+}
 
 export async function lockListing(tx: Tx, listingKey: string): Promise<Property> {
   const [row] = await tx.select().from(property).where(eq(property.ListingKey, listingKey)).for("update");

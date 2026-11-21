@@ -62,6 +62,54 @@ export type Manifest = {
 
 export class BackupError extends Error {}
 
+// ---- Whose media folder it is ----
+
+/*
+ * The sweep deletes files. It can tell that no record in ITS database refers
+ * to a file; it cannot tell that no other database does. Two databases
+ * pointed at one media folder (a demo and a development database, say) would
+ * each see the other's files as belonging to no one.
+ *
+ * So a media folder is swept only once it has been given to one database: a
+ * small file in it names that database. Nothing gives a folder away by itself
+ * except a restore, which fills an empty folder for the database it restores.
+ * Otherwise someone who knows the folder is used by that database alone says
+ * so, with `pnpm media:claim`. An unclaimed folder is never swept: files in it
+ * pile up, and none is lost. And once a folder is claimed, another database's
+ * uploads into it are refused, since the sweep would delete them.
+ */
+
+const CLAIM_FILE = ".osmls-media-belongs-to";
+
+/** What tells one database from another: the database server it lives in, and its name there. */
+export const INSTALLATION_ID_SQL = `(select system_identifier::text from pg_control_system()) || '/' || current_database()`;
+const installationIdOf = async (client: Client) => (await client.query(`select ${INSTALLATION_ID_SQL} as id`)).rows[0].id as string;
+
+/** The database a media folder has been given to, or null if it has been given to none. */
+export const mediaFolderOwner = (mediaDir: string): Promise<string | null> => readFile(path.join(mediaDir, CLAIM_FILE), "utf8").then((v) => v.trim() || null, () => null);
+
+/**
+ * Gives a media folder to a database, so that its backup run may delete files
+ * in it that no record refers to. Only for a folder that database alone uses.
+ * A folder already given to another database is not taken from it.
+ */
+export async function claimMediaFolder(target: Pick<BackupTarget, "databaseUrl" | "mediaDir">): Promise<{ owner: string; already: boolean }> {
+  const client = new Client({ connectionString: target.databaseUrl });
+  await client.connect();
+  try {
+    const id = await installationIdOf(client);
+    const owner = await mediaFolderOwner(target.mediaDir);
+    if (owner && owner !== id) throw new BackupError("This media folder has been given to another database. It is not taken from it.");
+    if (!owner) {
+      await mkdir(target.mediaDir, { recursive: true });
+      await writeFile(path.join(target.mediaDir, CLAIM_FILE), `${id}\n`);
+    }
+    return { owner: id, already: !!owner };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 // ---- The PostgreSQL tools ----
 
 /*
@@ -282,10 +330,20 @@ export async function pruneBackups(target: Pick<BackupTarget, "databaseUrl" | "b
  * none can begin while it works: a file it finds with no record is one whose
  * upload failed or whose record has been removed, never one still on its way.
  */
-export async function sweepUnreferencedFiles(target: Pick<BackupTarget, "databaseUrl" | "mediaDir">): Promise<{ deleted: string[] }> {
+export async function sweepUnreferencedFiles(target: Pick<BackupTarget, "databaseUrl" | "mediaDir">): Promise<{ deleted: string[]; skipped?: string }> {
   const client = new Client({ connectionString: target.databaseUrl });
   await client.connect();
   try {
+    // Nothing is deleted from a folder that has not been given to this database: another may be using it.
+    const owner = await mediaFolderOwner(target.mediaDir);
+    if (owner !== (await installationIdOf(client))) {
+      return {
+        deleted: [],
+        skipped: owner
+          ? "The media folder has been given to another database, so nothing in it was deleted."
+          : "The media folder has not been given to this database, so nothing in it was deleted. If this database alone uses it, run pnpm media:claim.",
+      };
+    }
     await client.query(`select pg_advisory_lock(${BACKUP_LOCK})`);
     await client.query(`select pg_advisory_lock(${FILES_LOCK})`);
     const referenced = new Set((await referencedFiles(client)).map(filePathOf));
@@ -293,7 +351,7 @@ export async function sweepUnreferencedFiles(target: Pick<BackupTarget, "databas
     for (const folder of ["", "documents"]) {
       for (const entry of await readdir(path.join(target.mediaDir, folder), { withFileTypes: true }).catch(() => [])) {
         const relative = path.join(folder, entry.name);
-        if (!entry.isFile() || referenced.has(relative)) continue;
+        if (!entry.isFile() || entry.name.startsWith(".") || referenced.has(relative)) continue;
         await unlink(path.join(target.mediaDir, relative));
         deleted.push(relative);
       }
@@ -338,6 +396,8 @@ export async function restoreBackup(dir: string, target: RestoreTarget, options:
 
     await mkdir(path.join(target.mediaDir, "documents"), { recursive: true });
     for (const file of manifest.files) await copyFile(path.join(dir, "files", file.path), path.join(target.mediaDir, file.path));
+    // The folder was empty and now holds exactly this database's files: it is this database's.
+    await writeFile(path.join(target.mediaDir, CLAIM_FILE), `${await installationIdOf(client)}\n`);
 
     // What was restored is checked against what was saved, record for record and file for file.
     const counts = await tableCounts(client);

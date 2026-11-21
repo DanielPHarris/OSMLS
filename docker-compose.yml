@@ -43,8 +43,10 @@ services:
     ports:
       - "${OSMLS_PORT:-3000}:3000"
     volumes:
-      # Shared with local development (MEDIA_DIR=./data/media), so photos uploaded
-      # either way show up in both.
+      # The same folder local development uses (MEDIA_DIR=./data/media), although
+      # the two have different databases. That is why backup runs delete no files
+      # here until the folder is given to one database: see "Backup and recovery"
+      # in the README.
       - ./data/media:/data/media
 
   # Sends due saved-search alerts and tidies expired links, once an hour. A real
@@ -63,7 +65,8 @@ services:
 
   # Takes a backup of the database and the photo and document files together,
   # once a day, keeps the last 14, and then deletes files no record refers to
-  # any more. Backups are written to ./data/backups on this machine: copying
+  # any more, if the media folder has been given to this database with
+  # `docker compose run --rm backup pnpm media:claim`. Backups are written to ./data/backups on this machine: copying
   # them somewhere else is for the installation to arrange.
   backup:
     build: .
