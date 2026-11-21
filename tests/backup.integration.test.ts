@@ -11,14 +11,14 @@
  */
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BackupError, knownMigrations, listBackups, pruneBackups, restoreBackup, sweepUnreferencedFiles, takeBackup, verifyBackup, type Manifest } from "../src/lib/backup";
+import { BackupError, claimMediaFolder, knownMigrations, listBackups, mediaFolderOwner, pruneBackups, restoreBackup, sweepUnreferencedFiles, takeBackup, verifyBackup, type Manifest } from "../src/lib/backup";
 
 const run = Date.now();
 const SOURCE = `osmls_drill_source_${run}`;
@@ -131,7 +131,9 @@ describe("the restore drill", () => {
     expect(readFileSync(path.join(restoredMediaDir, "documents", original.OsmlsStoragePath), "utf8")).toContain("the original");
     expect(media.map((m) => m.MediaKey)).toEqual(expect.arrayContaining([loaded.documents.deleted, loaded.photos[1]]));
     // Only the files the snapshot refers to were restored.
-    expect(readdirSync(restoredMediaDir).filter((e) => e !== "documents").length + readdirSync(path.join(restoredMediaDir, "documents")).length).toBe(5);
+    expect(readdirSync(restoredMediaDir).filter((e) => e !== "documents" && !e.startsWith(".")).length + readdirSync(path.join(restoredMediaDir, "documents")).length).toBe(5);
+    // The folder was empty and now holds exactly the restored database's files, so it is that database's.
+    expect(await claimMediaFolder({ databaseUrl: urlFor(RESTORED), mediaDir: restoredMediaDir })).toMatchObject({ already: true });
 
     // What happened after the backup is absent.
     expect(await query(RESTORED, `select count(*)::int as n from "Property" where "ListingKey" = '${later.laterListingKey}'`)).toEqual([{ n: 0 }]);
@@ -226,10 +228,15 @@ describe("files no record refers to", () => {
       const loaded = step("load", scratch, media);
       step("change-during-backup", scratch, media, loaded);
       const here = { databaseUrl: urlFor(scratch), mediaDir: media };
-      const onDisk = () => readdirSync(media).filter((e) => e !== "documents").length + readdirSync(path.join(media, "documents")).length;
+      const onDisk = () => readdirSync(media).filter((e) => e !== "documents" && !e.startsWith(".")).length + readdirSync(path.join(media, "documents")).length;
       // Removing and replacing deleted no file: five were uploaded, a sixth replaced one, and all six remain.
       expect(onDisk()).toBe(6);
-      // The sweep deletes the three that no record refers to, and keeps the three in use.
+      // A folder that has not been given to this database is not swept at all.
+      expect(await sweepUnreferencedFiles(here)).toEqual({ deleted: [], skipped: expect.stringMatching(/has not been given to this database/) });
+      expect(onDisk()).toBe(6);
+      expect(await claimMediaFolder(here)).toMatchObject({ already: false });
+      expect(await claimMediaFolder(here)).toMatchObject({ already: true });
+      // Given to it, the sweep deletes the three that no record refers to, and keeps the three in use.
       const swept = await sweepUnreferencedFiles(here);
       expect(swept.deleted).toHaveLength(3);
       expect(onDisk()).toBe(3);
@@ -250,13 +257,15 @@ describe("backups, pruning and uploads at the same moment", () => {
   const here = { databaseUrl: urlFor(scratch), mediaDir: media, backupDir: backups };
   let loaded: { listingKey: string };
   const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const filesOnDisk = () => readdirSync(media).filter((e) => e !== "documents");
+  const filesOnDisk = () => readdirSync(media).filter((e) => e !== "documents" && !e.startsWith("."));
 
   beforeAll(async () => {
     await admin.query(`create database ${scratch}`);
     app("scripts/migrate.ts", scratch, media);
     app("scripts/seed.ts", scratch, media);
     loaded = step("load", scratch, media);
+    // This folder is this database's alone, so its sweep is allowed to delete from it.
+    await claimMediaFolder(here);
   }, 120_000);
   afterAll(() => admin.query(`drop database if exists ${scratch} with (force)`));
 
@@ -381,6 +390,75 @@ describe("a backup made by an earlier version", () => {
       expect(await query(restored, `select "OfficeName" from "Office"`)).toEqual([{ OfficeName: "From the older version" }]);
     } finally {
       for (const name of [older, restored]) await admin.query(`drop database if exists ${name} with (force)`);
+    }
+  }, 180_000);
+});
+
+describe("a media folder that two databases use", () => {
+  it("is given to exactly one of two databases that claim it at the same moment", async () => {
+    const one = `osmls_drill_claim_one_${run}`;
+    const two = `osmls_drill_claim_two_${run}`;
+    for (const name of [one, two]) await admin.query(`create database ${name}`);
+    try {
+      for (let round = 0; round < 20; round++) {
+        const folder = path.join(work, `claimed-at-once-${round}`);
+        const claims = await Promise.allSettled([one, two].map((name) => claimMediaFolder({ databaseUrl: urlFor(name), mediaDir: folder })));
+        const won = claims.flatMap((c) => (c.status === "fulfilled" ? [c.value] : []));
+        const lost = claims.flatMap((c) => (c.status === "rejected" ? [c.reason] : []));
+        expect(won, `round ${round}`).toHaveLength(1);
+        expect(won[0].already).toBe(false);
+        expect(String(lost[0])).toContain("This media folder has been given to another database.");
+        // The folder names the one that won, and the other cannot take it afterwards either.
+        expect(await mediaFolderOwner(folder)).toBe(won[0].owner);
+        const loser = claims[0].status === "rejected" ? one : two;
+        await expect(claimMediaFolder({ databaseUrl: urlFor(loser), mediaDir: folder })).rejects.toThrow("This media folder has been given to another database.");
+        expect(await mediaFolderOwner(folder)).toBe(won[0].owner);
+      }
+    } finally {
+      for (const name of [one, two]) await admin.query(`drop database if exists ${name} with (force)`);
+    }
+  }, 120_000);
+
+  it("is never swept, so neither loses the other's files", async () => {
+    const one = `osmls_drill_shared_one_${run}`;
+    const two = `osmls_drill_shared_two_${run}`;
+    const shared = path.join(work, "shared-media");
+    for (const name of [one, two]) {
+      await admin.query(`create database ${name}`);
+      app("scripts/migrate.ts", name, shared);
+      app("scripts/seed.ts", name, shared);
+    }
+    try {
+      // Each installation uploads its own photos and documents into the one folder, as a demo and a
+      // development database pointed at the same folder would.
+      step("load", one, shared);
+      step("load", two, shared);
+      const filesOf = async (database: string) =>
+        (await query(database, `select "OsmlsStoragePath", "MediaCategory" from "Media"`)).map((m) => path.join(shared, m.MediaCategory === "Document" ? "documents" : "", m.OsmlsStoragePath));
+      const present = async (database: string) => (await filesOf(database)).filter((f) => existsSync(f)).length;
+      expect([await present(one), await present(two)]).toEqual([5, 5]);
+
+      // The first installation's backup run sweeps. The second installation's files are not in its records.
+      const swept = await sweepUnreferencedFiles({ databaseUrl: urlFor(one), mediaDir: shared });
+      expect(swept.deleted).toEqual([]);
+      expect(swept.skipped).toMatch(/has not been given to this database/);
+      expect([await present(one), await present(two)]).toEqual([5, 5]);
+      expect(await mediaFolderOwner(shared)).toBeNull();
+      // Unclaimed, both go on uploading to it as before.
+      const loadedTwo = step("load", two, shared);
+      expect(await present(two)).toBe(10);
+
+      // If the folder is given to one of them, the other can no longer take it or sweep it, and its uploads are
+      // refused, because the owner's sweep would delete them.
+      await claimMediaFolder({ databaseUrl: urlFor(one), mediaDir: shared });
+      await expect(claimMediaFolder({ databaseUrl: urlFor(two), mediaDir: shared })).rejects.toThrow("This media folder has been given to another database.");
+      expect((await sweepUnreferencedFiles({ databaseUrl: urlFor(two), mediaDir: shared })).skipped).toMatch(/given to another database/);
+      expect(() => step("upload-photo", two, shared, loadedTwo)).toThrow(/the media folder belongs to another installation/);
+      expect(await present(two)).toBe(10);
+      // The owner still uploads.
+      expect(step("upload-photo", one, shared, step("load", one, shared)).mediaKey).toMatch(/^[0-9a-f-]{36}$/);
+    } finally {
+      for (const name of [one, two]) await admin.query(`drop database if exists ${name} with (force)`);
     }
   }, 180_000);
 });

@@ -1064,6 +1064,28 @@ until its record is committed, and the sweep waits for that lock. So the sweep
 never deletes the file of an upload still in progress, however long it takes. An
 upload never waits for a backup.
 
+**The sweep needs the media folder to be one database's alone.** The sweep
+deletes every file its own database does not refer to, so if two databases used
+one folder, each would delete the other's files. It therefore deletes nothing
+until the folder has been given to its database:
+
+```bash
+pnpm media:claim                               # the database in DATABASE_URL, the folder in MEDIA_DIR
+docker compose run --rm backup pnpm media:claim   # the same, for the Docker Compose setup
+```
+
+- Until then `pnpm backup` still takes and prunes backups, says the files were
+  not swept and why, and removed files stay on disk.
+- A folder given to one database cannot be given to another, is not swept by
+  another, and refuses another's uploads.
+- Restoring gives the restored folder to the restored database.
+- The Docker Compose setup shares `./data/media` with local development, which
+  uses a different database. Give the folder to one of them only if the other is
+  not used, or point one of them at a folder of its own with `MEDIA_DIR`.
+- The folder is tied to the database server and database name. A database moved
+  to a new server other than by `pnpm restore` is a different database to this
+  check: remove `.osmls-media-belongs-to` from the folder and claim it again.
+
 **Where and how often.** `pnpm backup` writes to `BACKUP_DIR` on the same machine
 and keeps the newest `BACKUP_KEEP` complete backups (14 unless set). The Docker
 Compose setup runs it once a day. Copying backups off the machine and encrypting

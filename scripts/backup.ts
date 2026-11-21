@@ -26,4 +26,4 @@ console.log(`Backup: ${made.dir} (${made.manifest.files.length} files, ${Object.
 const pruned = await pruneBackups(target, keep);
 console.log(`Backups: ${pruned.deleted.length} older than the last ${keep} deleted.`);
 const swept = await sweepUnreferencedFiles(target);
-console.log(`Files: ${swept.deleted.length} that no record refers to deleted.`);
+console.log(swept.skipped ? `Files: ${swept.skipped}` : `Files: ${swept.deleted.length} that no record refers to deleted.`);

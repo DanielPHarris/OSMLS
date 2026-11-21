@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sweepUnreferencedFiles } from "../src/lib/backup";
+import { claimMediaFolder, sweepUnreferencedFiles } from "../src/lib/backup";
 import { db, pool } from "../src/db";
 import { historyTransactional, media, member, type Member } from "../src/db/schema";
 import {
@@ -99,7 +99,11 @@ afterAll(() => pool.end());
  * no record refers to it. These tests run the sweep as the scheduled command
  * would.
  */
-const sweep = () => sweepUnreferencedFiles({ databaseUrl: process.env.DATABASE_URL!, mediaDir: mediaDir() });
+const sweep = async () => {
+  // The test media folder is used by the test database alone, so it is given to it; only then is it swept.
+  await claimMediaFolder({ databaseUrl: process.env.DATABASE_URL!, mediaDir: mediaDir() });
+  return sweepUnreferencedFiles({ databaseUrl: process.env.DATABASE_URL!, mediaDir: mediaDir() });
+};
 
 describe("file validation", () => {
   it("identifies PDF, JPEG, and PNG by content", () => {
