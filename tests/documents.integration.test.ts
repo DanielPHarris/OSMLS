@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sweepUnreferencedFiles } from "../src/lib/backup";
 import { db, pool } from "../src/db";
 import { historyTransactional, media, member, type Member } from "../src/db/schema";
 import {
@@ -27,6 +28,7 @@ import {
   removePhoto,
   searchListings,
   updateListing,
+  mediaDir,
 } from "../src/lib/listings";
 import { MAX_DOCUMENT_BYTES, MAX_DOCUMENTS_PER_LISTING } from "../src/lib/rules/local";
 
@@ -90,6 +92,14 @@ beforeAll(async () => {
 });
 
 afterAll(() => pool.end());
+
+/*
+ * A file is not deleted when its record is removed or replaced: a backup being
+ * taken may refer to it (src/lib/backup.ts). It is deleted by the sweep, once
+ * no record refers to it. These tests run the sweep as the scheduled command
+ * would.
+ */
+const sweep = () => sweepUnreferencedFiles({ databaseUrl: process.env.DATABASE_URL!, mediaDir: mediaDir() });
 
 describe("file validation", () => {
   it("identifies PDF, JPEG, and PNG by content", () => {
@@ -168,7 +178,7 @@ describe("storing and changing documents", () => {
     expect(row).toMatchObject({ PreviousValue: null, ChangedByMemberID: "AG1001", OsmlsStaffCorrection: false });
   });
 
-  it("replaces the file, keeps name and permission, destroys the old file, and keeps a record of it", async () => {
+  it("replaces the file, keeps name and permission, leaves the old file for the sweep to destroy, and keeps a record of it", async () => {
     const listing = await newListing();
     const first = pdf("first version");
     const second = png();
@@ -182,6 +192,10 @@ describe("storing and changing documents", () => {
       MediaType: "image/png",
       OsmlsFileHash: sha(second),
     });
+    // The record now points at the new file, so the old one is served to no one. It stays on disk until the sweep.
+    expect(replaced.OsmlsStoragePath).not.toBe(doc.OsmlsStoragePath);
+    expect(existsSync(documentPath(doc.OsmlsStoragePath))).toBe(true);
+    await sweep();
     expect(existsSync(documentPath(doc.OsmlsStoragePath))).toBe(false);
     expect(existsSync(documentPath(replaced.OsmlsStoragePath))).toBe(true);
 
@@ -213,15 +227,18 @@ describe("storing and changing documents", () => {
     );
   });
 
-  it("deletes the record and the file, and keeps a record of what it was", async () => {
+  it("deletes the record at once and the file at the next sweep, and keeps a record of what it was", async () => {
     const listing = await newListing();
     const bytes = pdf("to be deleted");
     const doc = await addDocument(who.listingAgent, listing.ListingKey, { bytes, name: "Old inspection", permission: "Private" });
     await removeDocument(who.listingAgent, doc.MediaKey);
 
     expect(await db.select().from(media).where(eq(media.MediaKey, doc.MediaKey))).toHaveLength(0);
-    expect(existsSync(documentPath(doc.OsmlsStoragePath))).toBe(false);
+    // Gone from the application at once: no one is served it. Its file goes at the sweep.
     expect(await getDocumentForViewer(who.listingAgent, doc.MediaKey)).toBeNull();
+    expect(existsSync(documentPath(doc.OsmlsStoragePath))).toBe(true);
+    await sweep();
+    expect(existsSync(documentPath(doc.OsmlsStoragePath))).toBe(false);
     const row = (await documentHistory(listing.ListingKey)).find((r) => r.PreviousValue?.startsWith("Deleted"));
     expect(row?.PreviousValue).toContain("Old inspection");
     expect(row?.PreviousValue).toContain(sha(bytes));
@@ -243,8 +260,9 @@ describe("storing and changing documents", () => {
 
       const [final] = await db.select().from(media).where(eq(media.MediaKey, doc.MediaKey));
       expect([sha(a), sha(b)]).toContain(final.OsmlsFileHash);
-      // Only the file the record points at is left on disk.
+      // Once the sweep has run, only the file the record points at is left on disk.
       const paths = [doc.OsmlsStoragePath, first.OsmlsStoragePath, second.OsmlsStoragePath];
+      await sweep();
       expect(paths.filter((p) => existsSync(documentPath(p)))).toEqual([final.OsmlsStoragePath]);
 
       // History is a chain: original -> one replacement -> the other, ending at the stored file.
@@ -258,13 +276,14 @@ describe("storing and changing documents", () => {
       expect(fromMiddle[0]).toBe(fromOriginal[1]);
       expect(fromMiddle[1]).toBe(final.OsmlsFileHash);
 
-      // Deleting afterwards leaves nothing behind.
+      // Deleting afterwards leaves nothing behind, once the sweep has run.
       await removeDocument(who.listingAgent, doc.MediaKey);
+      await sweep();
       expect(paths.filter((p) => existsSync(documentPath(p)))).toEqual([]);
     }
   });
 
-  it("leaves no file behind when a replacement and a deletion overlap", async () => {
+  it("leaves no file behind after the sweep when a replacement and a deletion overlap", async () => {
     for (let round = 0; round < 6; round++) {
       const listing = await newListing();
       const doc = await addDocument(who.listingAgent, listing.ListingKey, { bytes: pdf(`o${round}`), name: "Going", permission: "Private" });
@@ -278,6 +297,7 @@ describe("storing and changing documents", () => {
       if (replaced.status === "rejected") expect(String(replaced.reason)).toContain("Document not found.");
 
       expect(await db.select().from(media).where(eq(media.MediaKey, doc.MediaKey))).toHaveLength(0);
+      await sweep();
       expect(existsSync(documentPath(doc.OsmlsStoragePath))).toBe(false);
       // No new file survives either, whichever order they ran in.
       expect(readdirSync(documentsDir()).filter((f) => !before.has(f))).toEqual([]);

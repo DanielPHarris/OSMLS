@@ -61,5 +61,23 @@ services:
       MAIL_FROM: OSMLS demo <no-reply@osmls.example>
     command: ["sh", "-c", "while true; do sleep 3600; pnpm alerts:send; done"]
 
+  # Takes a backup of the database and the photo and document files together,
+  # once a day, keeps the last 14, and then deletes files no record refers to
+  # any more. Backups are written to ./data/backups on this machine: copying
+  # them somewhere else is for the installation to arrange.
+  backup:
+    build: .
+    depends_on:
+      - app
+    environment:
+      DATABASE_URL: postgres://osmls:osmls@db:5432/osmls
+      MEDIA_DIR: /data/media
+      BACKUP_DIR: /data/backups
+      BACKUP_KEEP: "14"
+    volumes:
+      - ./data/media:/data/media
+      - ./data/backups:/data/backups
+    command: ["sh", "-c", "while true; do sleep 86400; pnpm backup; done"]
+
 volumes:
   osmls-db:
