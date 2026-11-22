@@ -53,7 +53,7 @@ production-ready.**
   checkpoint the member moves only by marking activity as seen. A test commits a
   change late and confirms it is not skipped. To make that safe, changes to
   listings are committed one at a time. What that costs was measured on one
-  laptop (README, "performance measurement"); that is not a capacity figure
+  laptop (docs/operations.md, "Performance measurement"); that is not a capacity figure
   for any installation. Sharing and scheduled alerts (slice 4) give a client a link to
   a listing or a collection, built from the same client-copy list, and email a
   member the activity on their saved searches. Tests send real email to a mail
@@ -129,7 +129,7 @@ production-ready.**
   scheduled command has stopped; a monitor outside it is needed for those and
   is not built. What committing listing changes one at a time costs was
   measured, on one laptop with a synthetic dataset: the figures and their
-  limits are in the README, and nothing was changed because of them.
+  limits are in docs/operations.md, and nothing was changed because of them.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -292,8 +292,8 @@ toolkit and Data Dictionary.
 - Do not copy RESO's code or metadata file into the repository. Do not build on the
   reference server.
 - Use RESO's certification tool as an external check of the Web API endpoint.
-  Done locally on 2026-11-20 (version 0.13.1), from outside the repository; the
-  README gives the results and their limits.
+  Done locally on 2026-11-20 (version 0.13.1), from outside the repository;
+  docs/data-exchange.md gives the results and their limits.
 - Describe the project factually ("field names and lookup values follow the RESO
   Data Dictionary 2.1"), with no RESO logo and no certification claim.
 - The repository contains none of RESO's code or files, uses no RESO logo, and
