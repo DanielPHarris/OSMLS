@@ -149,6 +149,30 @@ export async function holdFilesShared(tx: Tx): Promise<void> {
   if (owner !== id) throw new ListingError("Files cannot be stored: the media folder belongs to another installation. Tell MLS staff.");
 }
 
+/**
+ * The member a write is being made by, as they are now, read inside the
+ * write's own transaction. A request is allowed when it begins on what the
+ * member was then; this is what it is allowed on when it saves. A member
+ * suspended in between saves nothing.
+ *
+ * The row is held shared until the write ends, so a suspension either
+ * finished first, and is seen here, or waits until this write has finished.
+ * It is taken before anything else the write locks.
+ *
+ * `refusal` is what a suspended member is told, where that is not the plain
+ * statement: a document's existence is not confirmed to someone who may not
+ * see it, suspended members included.
+ */
+export async function actingNow(tx: Tx, actor: Actor, refusal: () => Error = () => new ListingError("Your account is suspended. Nothing was saved.")): Promise<Actor> {
+  const [now] = await tx
+    .select({ MemberKey: member.MemberKey, MemberMlsId: member.MemberMlsId, OsmlsRole: member.OsmlsRole, OfficeKey: member.OfficeKey, MemberStatus: member.MemberStatus })
+    .from(member)
+    .where(eq(member.MemberKey, actor.MemberKey))
+    .for("share");
+  if (!now || now.MemberStatus !== "Active") throw refusal();
+  return now;
+}
+
 export async function lockListing(tx: Tx, listingKey: string): Promise<Property> {
   const [row] = await tx.select().from(property).where(eq(property.ListingKey, listingKey)).for("update");
   if (!row) throw new ListingError("Listing not found.");
@@ -273,6 +297,10 @@ export async function createListing(
   const today = await mlsDate(now);
 
   return db.transaction(async (tx) => {
+
+    actor = await actingNow(tx, actor);
+    // Their role or office may have changed since the request began, too.
+    if (actor.OsmlsRole !== "agent" || !actor.OfficeKey) throw new ListingError("Only agents can enter listings.");
     await takePropertyTurns(tx, propertyTurnKeys(input));
     return createListingIn(tx, { input, listingAgent: actor, actor, now, today });
   });
@@ -293,6 +321,8 @@ export async function updateListing(
   const settings = await currentSettings();
 
   return db.transaction(async (tx) => {
+
+    actor = await actingNow(tx, actor);
     const current = await lockListing(tx, listingKey);
     const correction = authorizeChange(actor, current, correctionReason);
     const from = current.StandardStatus as StandardStatus;
@@ -377,6 +407,7 @@ export async function addPhoto(
   const fileName = `${randomUUID()}.${type.ext}`;
   try {
     return await db.transaction(async (tx) => {
+      actor = await actingNow(tx, actor);
       // Held until the record is committed, so the sweep never mistakes this file for one nothing refers to.
       await holdFilesShared(tx);
       await mkdir(mediaDir(), { recursive: true });
@@ -416,6 +447,7 @@ export async function addPhoto(
 
 export async function removePhoto(actor: Actor, mediaKey: string, correctionReason?: string | null) {
   const removed = await db.transaction(async (tx) => {
+    actor = await actingNow(tx, actor);
     const isThisPhoto = and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Photo"));
     // An unlocked look, only to learn which listing to lock.
     const [pointer] = await tx.select({ listingKey: media.ResourceRecordKey }).from(media).where(isThisPhoto);

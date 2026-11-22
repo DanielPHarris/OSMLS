@@ -513,8 +513,9 @@ staff permissions the third, both below.
 - **Suspension.** Needs a reason. It denies access through every session the
   member has, at once; it does not delete those sessions, so reinstating restores
   access without a new sign-in. A suspended member can still sign in and is then
-  refused everything. Their client links and photos stop working and their email
-  alerts stop. Nothing of theirs is deleted, and reinstating restores it all.
+  refused everything. A change to a listing, a photo or a document that the
+  member had begun but not yet saved is refused too, and saves nothing. Their
+  client links and photos stop working and their email alerts stop. Nothing of theirs is deleted, and reinstating restores it all.
 - **Guards.** A staff member cannot suspend themself or change their own role.
   Every change to anyone's status or role is taken one at a time across the MLS,
   and the acting member's own authority is checked again inside that turn, so two
