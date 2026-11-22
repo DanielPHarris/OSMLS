@@ -513,8 +513,12 @@ staff permissions the third, both below.
 - **Suspension.** Needs a reason. It denies access through every session the
   member has, at once; it does not delete those sessions, so reinstating restores
   access without a new sign-in. A suspended member can still sign in and is then
-  refused everything. A change to a listing, a photo or a document that the
-  member had begun but not yet saved is refused too, and saves nothing. Their
+  refused everything. A change to a listing, a photo or a document
+  that is under way at that moment goes one of two ways. If the suspension is
+  recorded first, the change is refused and saves nothing. If the change has
+  already reached the point of saving, it finishes, and the suspension waits
+  for it and takes effect immediately after. A suspension never lands in the
+  middle of a change. Their
   client links and photos stop working and their email alerts stop. Nothing of theirs is deleted, and reinstating restores it all.
 - **Guards.** A staff member cannot suspend themself or change their own role.
   Every change to anyone's status or role is taken one at a time across the MLS,
@@ -1234,7 +1238,9 @@ default settings (`shared_buffers` 128MB, `synchronous_commit` on, `fsync` on).
 The benchmark, the application's code and the database all ran on it.
 
 **Price changes, run on 2026-11-21.** Median of three runs; times in
-milliseconds.
+milliseconds. These figures were measured before a later fix that makes every
+listing change also read and hold its member's row (see suspension, above).
+They have not been measured again since, so they do not include that step.
 
 | Writers | Connections | Committed a second | Time for a change, median | 99th percentile | Wait for the lock, median | 99th percentile |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
