@@ -15,13 +15,14 @@ It is a working application. Run it locally with sample data to evaluate those
 workflows, or use it as a foundation for your own MLS. [Status](#status) says what
 has and has not been validated.
 
-![Search form with filters and a results table](docs/screenshots/search.png)
-
 ## Try it
 
-You need [Docker](https://docs.docker.com/get-docker/).
+You need [Docker](https://docs.docker.com/get-docker/) and
+[Git](https://git-scm.com/downloads).
 
 ```bash
+git clone https://github.com/DanielPHarris/OSMLS.git
+cd OSMLS
 docker compose up --build
 ```
 
@@ -65,6 +66,8 @@ To try market research, search for "Comparable Ct" with Closed ticked to see rec
 sales, open "1 Comparable Ct" and choose **Find comparables**. Listings on
 "Relist Rd" show how cumulative days on market carry across a relisting, and when
 they do not.
+
+![Search form with filters and a results table](docs/screenshots/search.png)
 
 ## What you can do
 
