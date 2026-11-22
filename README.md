@@ -1294,9 +1294,9 @@ web server, how fast searches and reports are, and a measurement on a server.
 ### Not yet built
 
 Client accounts and scheduled email to clients, brokerage-wide access,
-self-service password reset, migrating an existing MLS's historical records,
-monitoring and performance measurement (the rest of production operations), and
-fair-housing checks on remarks. See the charter for the planned order.
+self-service password reset, migrating an existing MLS's historical records, and
+fair-housing checks on remarks. The roadmap in the charter is complete; none of
+these is on it.
 
 ## Try it
 

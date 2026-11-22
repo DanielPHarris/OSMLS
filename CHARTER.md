@@ -111,7 +111,8 @@ production-ready.**
   is confirmed, and a commit creates exactly the rows the preview accepted or
   nothing. The importer cannot migrate an existing MLS's historical records;
   that is deferred (section 4).
-- Production operations is under way: slices 1 and 2 of 3 are delivered. One command
+- Production operations is complete: all three slices are delivered, and with
+  it the agreed roadmap (section 10). That is not production readiness. One command
   backs up the database and the photo and document files together, as one
   state the system was in, with the application in use throughout; another
   restores them into an empty database and folder and checks the result. A
@@ -126,8 +127,9 @@ production-ready.**
   files cannot be stored, and a status screen for staff. It cannot report that
   the machine is off, that the database is unreachable, or that its own
   scheduled command has stopped; a monitor outside it is needed for those and
-  is not built. Performance measurement (slice 3) is not built, so the phase
-  is not complete.
+  is not built. What committing listing changes one at a time costs was
+  measured, on one laptop with a synthetic dataset: the figures and their
+  limits are in the README, and nothing was changed because of them.
 - Deployed: nowhere. There is no hosted instance.
 
 ## 1. Purpose
@@ -499,14 +501,14 @@ Next, in this order unless contributors and the maintainer agree otherwise:
      alerts.
 5. Production operations: monitoring, backups, recovery. Measuring what committing
    listing changes one at a time costs under load belongs here.
-   In progress, as one phase in three slices, each with its own issue and pull
-   request. The phase is complete only when all three are:
+   Complete, as one phase in three slices, each with its own issue and pull
+   request:
 
    | Slice | Delivers | Status |
    | --- | --- | --- |
    | 1 | Backup and recovery, proved by a restore drill in which the database and the uploaded files are restored together | Done 2026-11-21 (issue #37) |
    | 2 | Monitoring: health checks, failure reporting, and a status screen | Done 2026-11-21 (issue #40) |
-   | 3 | Performance: the measured throughput and latency of listing changes, which commit one at a time | In progress (issue #42) |
+   | 3 | Performance: the measured throughput and latency of listing changes, which commit one at a time | Done 2026-11-21 (issue #42) |
 
    The phase is proved locally, in the Docker Compose setup the project ships.
    That shows the mechanisms work. It does not show that a hosted installation
@@ -555,13 +557,30 @@ Next, in this order unless contributors and the maintainer agree otherwise:
    - A database outage or a wrong schema version is not emailed from inside;
      it shows in the readiness check and the log.
 
+   Decided by the maintainer on 2026-11-21 for slice 3:
+   - The measurement calls the application's own listing functions directly,
+     not the web server.
+   - Writers of 1, 2, 4, 8, 16, 32 and 64, each run three times with the
+     shipped pool of 10 connections; 16, 32 and 64 also with a pool as large
+     as the writers.
+   - A synthetic dataset of 10,000 listings, 200 agents and 20 offices.
+   - The full timing exercise is run by hand and is not part of the checks. A
+     small run is, and imposes no performance threshold.
+   - Results are recorded in the README from one run on the maintainer's
+     machine, with no pass or fail threshold.
+   - Lock wait is timed by an instrumented trigger in the benchmark's scratch
+     database only.
+   - Nothing about how listing changes are committed was changed. What to do
+     about the figures is a separate decision and is not on this roadmap.
+
 Agreed by the maintainer on 2026-11-20: this roadmap ends with items 4 and 5,
 data exchange and then production operations, in that order. What section 4
 defers stays outside it unless the maintainer changes the scope. Finishing the
 roadmap is not production readiness: there is no hosted instance, and wider
 browser and device testing, a security review, and the fair-housing design
-requirements below would still be needed before that could be said. Item 4 is
-complete. Item 5 is the last; its plan is above.
+requirements below would still be needed before that could be said. Items 4
+and 5 are complete, and so is this roadmap, as of 2026-11-21. Nothing further
+is planned here until the maintainer sets a new scope.
 
 Fair-housing considerations (section 8) are a design requirement and are not yet
 implemented in any feature.
