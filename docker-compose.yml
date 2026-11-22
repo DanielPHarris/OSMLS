@@ -51,13 +51,13 @@ services:
       # The same folder local development uses (MEDIA_DIR=./data/media), although
       # the two have different databases. That is why backup runs delete no files
       # here until the folder is given to one database: see "Backup and recovery"
-      # in the README.
+      # in docs/operations.md.
       - ./data/media:/data/media
 
   # Sends due saved-search alerts, tidies expired links and import previews,
   # and emails OPS_EMAIL when something is wrong, once an hour. A real
   # installation would schedule `pnpm alerts:send` however it schedules jobs.
-  # Nothing here notices if this stops: see "Monitoring" in the README.
+  # Nothing here notices if this stops: see "Monitoring" in docs/operations.md.
   alerts:
     build: .
     depends_on:
