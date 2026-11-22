@@ -372,8 +372,8 @@ transactions commit, by making each transaction that records a listing change ta
 one lock until it ends. That is what makes "everything up to number N" safe: a
 change committed late cannot land behind a checkpoint and be skipped. The cost is
 that changes to listings are committed one at a time across the whole MLS. Photo
-and document files are written before that lock is taken. How much this limits a
-busy MLS has not been measured.
+and document files are written before that lock is taken. What this costs has been
+measured on one machine: see [performance measurement](#added-since-01-performance-measurement).
 
 Not included: activity for collections, a count in the
 page header, live updates, dismissing single changes, and rebuilding criteria other
@@ -1194,6 +1194,102 @@ installation's.
 
 Not included: a monitor outside the installation, paging, log shipping, metrics
 and dashboards, and watching disk space.
+
+### Added since 0.1: performance measurement
+
+Changes to listings are committed one at a time across the whole MLS (see
+saved-search activity above for why). `pnpm measure` measures what that costs:
+how many listing changes are committed a second, how long each takes, and how
+long each waits for the lock that puts them in order, as the number of
+simultaneous writers grows.
+
+**These are measurements from one run on one laptop. They are not a capacity
+figure for any installation, and nothing here was tuned or changed because of
+them.**
+
+**How it was measured.**
+
+- The application's own functions for changing a price and entering a listing
+  were called directly, by 1 to 64 simultaneous writers. Requests through the web
+  server were not measured.
+- A synthetic dataset of 10,000 listings, 200 agents and 20 offices, in a
+  database the command creates and drops. It is not a model of any MLS.
+- Every run started from a copy of the same dataset, with 5 seconds of warm-up
+  that is not counted and 20 seconds measured. Each level was run three times.
+- Each price-change writer had listings of its own, so writers did not wait on
+  each other's listings.
+- The application shares 10 database connections. Every level was run that way;
+  16, 32 and 64 writers were also run with a connection each.
+- Time waiting for the lock was recorded by a trigger that exists only in the
+  benchmark's database. Before anything was measured, a change was made to wait
+  for a lock held on purpose for 500 ms, and the wait recorded was 507 ms.
+- All 93 runs had no failed change, and in each the changes the benchmark
+  counted were the transactions, history rows and listings the database
+  recorded.
+
+**The machine.** An Apple M1 Max laptop with 10 cores and 64 GB of memory, on
+its internal solid-state storage, with PostgreSQL 17.12 in Docker Desktop at its
+default settings (`shared_buffers` 128MB, `synchronous_commit` on, `fsync` on).
+The benchmark, the application's code and the database all ran on it.
+
+**Price changes, run on 2026-11-21.** Median of three runs; times in
+milliseconds.
+
+| Writers | Connections | Committed a second | Time for a change, median | 99th percentile | Wait for the lock, median | 99th percentile |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 10 | 228 | 4.2 | 11.0 | 0.006 | 0.02 |
+| 2 | 10 | 764 | 2.5 | 4.3 | 0.005 | 0.2 |
+| 4 | 10 | 1,081 | 3.6 | 5.7 | 0.01 | 1.0 |
+| 8 | 10 | 1,143 | 6.8 | 10.6 | 3.0 | 5.2 |
+| 16 | 10 | 1,130 | 13.7 | 20.9 | 4.8 | 8.2 |
+| 32 | 10 | 1,141 | 27.2 | 39.8 | 4.8 | 7.8 |
+| 64 | 10 | 1,126 | 54.9 | 101.9 | 4.8 | 7.9 |
+| 16 | 16 | 1,094 | 14.1 | 21.5 | 10.1 | 16.1 |
+| 32 | 32 | 1,066 | 29.2 | 43.0 | 25.1 | 37.1 |
+| 64 | 64 | 1,073 | 57.6 | 99.7 | 53.7 | 92.1 |
+
+New listings and a mix of nine price changes to one new listing gave figures
+within about a tenth of these at four writers and above. Every run, with the
+lowest and highest of each three, is in
+[bench/results/RESULTS.md](bench/results/RESULTS.md).
+
+**What the figures show, on this machine.**
+
+- The number committed a second rose until about four to eight writers, and from
+  there stayed between about 1,050 and 1,230 whatever the number of writers or
+  the workload.
+- Past that point more writers bought no more changes, only a longer wait for
+  each: the time for one change roughly doubled each time the writers doubled.
+- With 10 connections, much of the total latency occurred outside the measured
+  history-lock wait. Increasing the pool shifted most of the latency into lock
+  waiting without improving throughput (a median of 54 ms of 58 ms at 64
+  writers), consistent with connection-pool queueing in the smaller-pool runs.
+  Time waiting for a connection was not itself measured.
+
+**What they do not show.**
+
+- Whether the lock is what sets the ceiling. The writers and the application's
+  code ran in one Node.js process, which does one thing at a time, on the same
+  machine as the database. The measurement cannot tell a limit set by the lock
+  from one set by that process or by the machine.
+- Why one writer alone was slower for each change (4.2 ms) than each of two
+  writers together (2.5 ms). This was the same in every workload and is not
+  explained.
+- Anything about a server. A laptop's storage and a database in Docker are not a
+  hosted installation's, and no real MLS's pattern of changes is known to this
+  project.
+- What the lock timing changes. With one writer, 241 changes a second (224 to
+  249) without it and 228 (227 to 231) with it. That is an estimate for one
+  writer, not a correction for the rest: the record is written while the lock is
+  held, which can lengthen the queue behind it under load.
+
+To run it: `pnpm measure` on a machine doing nothing else. It takes about 45
+minutes, works only in databases named `osmls_bench_*` on the server in
+`DATABASE_URL`, and writes `bench/results/`. The checks run it small, to show
+that it works and that its counts agree. They hold it to no speed.
+
+Not included: any change to how listing changes are committed, load through the
+web server, how fast searches and reports are, and a measurement on a server.
 
 ### Not yet built
 
