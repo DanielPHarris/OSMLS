@@ -1260,9 +1260,11 @@ lowest and highest of each three, is in
   the workload.
 - Past that point more writers bought no more changes, only a longer wait for
   each: the time for one change roughly doubled each time the writers doubled.
-- With 10 connections, most of that wait was for a connection, not for the lock.
-  With a connection for every writer the total was about the same, and nearly
-  all of it was waiting for the lock: a median of 54 ms of 58 ms at 64 writers.
+- With 10 connections, much of the total latency occurred outside the measured
+  history-lock wait. Increasing the pool shifted most of the latency into lock
+  waiting without improving throughput (a median of 54 ms of 58 ms at 64
+  writers), consistent with connection-pool queueing in the smaller-pool runs.
+  Time waiting for a connection was not itself measured.
 
 **What they do not show.**
 
