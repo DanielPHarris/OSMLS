@@ -2,6 +2,8 @@
 
 Run on 2026-11-21 by `pnpm measure`. Every figure below is from this one run on this one machine.
 
+These figures were measured at commit `94692f7`, before a later fix that makes every listing change also read and hold its member's row. They have not been measured again since.
+
 ## Machine
 
 - Processor: Apple M1 Max, 10 cores. Memory: 64 GB. System: Darwin 24.1.0 arm64. Node.js v22.21.0.

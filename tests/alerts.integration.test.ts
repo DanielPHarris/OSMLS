@@ -387,9 +387,10 @@ describe("the checkpoint's life", () => {
     const { listing, key } = await watching("Suspended");
     const before = await state(key);
     const mail = inbox();
+    // The change is made first: a suspended member can no longer save one.
+    await reprice(listing, 480000);
     await db.update(member).set({ MemberStatus: "Inactive" }).where(eq(member.MemberKey, owner.MemberKey));
     try {
-      await reprice(listing, 480000);
       expect((await sendDueAlerts({ send: mail.send, now: later() })).outcomes).toEqual({});
       expect((await state(key)).OsmlsAlertSentThrough).toBe(before.OsmlsAlertSentThrough);
     } finally {

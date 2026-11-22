@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { db, type Tx } from "../db";
 import { historyTransactional, media, property, type Media, type Property } from "../db/schema";
 import { canViewDocument, type Viewer } from "./access";
-import { ListingError, authorizeChange, holdFilesShared, lockListing, mediaDir, type Actor } from "./listings";
+import { ListingError, actingNow, authorizeChange, holdFilesShared, lockListing, mediaDir, type Actor } from "./listings";
 import { DOCUMENT_PERMISSIONS, DEFAULT_DOCUMENT_PERMISSION, type DocumentPermission } from "./lookups";
 import { MAX_DOCUMENT_BYTES, MAX_DOCUMENTS_PER_LISTING } from "./rules/local";
 
@@ -62,6 +62,9 @@ function checkedPermission(permission: unknown): DocumentPermission {
 const describeFile = (d: Pick<Media, "ShortDescription" | "MediaType" | "OsmlsFileSize" | "OsmlsFileHash">) =>
   `${d.ShortDescription} (${d.MediaType}, ${d.OsmlsFileSize} bytes, SHA-256 ${d.OsmlsFileHash})`;
 
+/** What anyone who may not see a document is told, whether or not it exists. */
+const notFound = () => new ListingError("Document not found.");
+
 /**
  * Finds a document for someone who wants to change it.
  *
@@ -73,7 +76,6 @@ const describeFile = (d: Pick<Media, "ShortDescription" | "MediaType" | "OsmlsFi
  * same answer as for a key that was never issued.
  */
 async function findForChange(tx: Tx, actor: Actor, mediaKey: string): Promise<{ current: Media; listing: Property }> {
-  const notFound = () => new ListingError("Document not found.");
   if (!/^[0-9a-f-]{36}$/i.test(mediaKey)) throw notFound();
   const isThisDocument = and(eq(media.MediaKey, mediaKey), eq(media.MediaCategory, "Document"));
 
@@ -146,6 +148,7 @@ export async function addDocument(
   const storedName = newStoredName(type.ext);
   try {
     return await db.transaction(async (tx) => {
+      actor = await actingNow(tx, actor);
       await storeFile(tx, storedName, input.bytes);
       const listing = await lockListing(tx, listingKey);
       const correction = authorizeChange(actor, listing, correctionReason);
@@ -193,6 +196,7 @@ export async function replaceDocument(
   let updated: Media;
   try {
     [superseded, updated] = await db.transaction(async (tx) => {
+      actor = await actingNow(tx, actor, notFound);
       await storeFile(tx, storedName, bytes);
       const { current, listing } = await findForChange(tx, actor, mediaKey);
       const correction = authorizeChange(actor, listing, correctionReason);
@@ -233,6 +237,7 @@ export async function updateDocument(
     throw new ListingError("Choose who can see this document.", { permission: "Choose one of the options." });
   const permission = checkedPermission(input.permission);
   return db.transaction(async (tx) => {
+    actor = await actingNow(tx, actor, notFound);
     const { current, listing } = await findForChange(tx, actor, mediaKey);
     const correction = authorizeChange(actor, listing, correctionReason);
     const entries: HistoryEntry[] = [];
@@ -257,6 +262,7 @@ export async function updateDocument(
 
 export async function removeDocument(actor: Actor, mediaKey: string, correctionReason?: string | null) {
   const removed = await db.transaction(async (tx) => {
+    actor = await actingNow(tx, actor, notFound);
     const { current, listing } = await findForChange(tx, actor, mediaKey);
     const correction = authorizeChange(actor, listing, correctionReason);
     await tx.delete(media).where(eq(media.MediaKey, mediaKey));
